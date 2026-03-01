@@ -1,0 +1,7 @@
+
+# used to connect to photo schema
+username:scott
+password:tiger
+connection:some-server/pdb1.example.com
+ollama_server:http://localhost:11434
+
