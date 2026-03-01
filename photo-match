@@ -1,0 +1,352 @@
+#!/usr/bin/env python3
+
+import argparse
+import json
+import logging
+import os
+import sys
+from array import array
+from datetime import datetime
+
+import oracledb
+import requests
+from flask import Flask, request, jsonify, render_template_string
+
+app = Flask(__name__)
+
+# Config globals
+db_config = {}
+ollama_host = "http://localhost:11434"
+embed_model = "mxbai-embed-large"
+tags_list = []
+
+def load_tags():
+    tags = []
+    if os.path.exists("tag-count.txt"):
+        with open("tag-count.txt", "r", encoding="utf-8") as f:
+            for line in f:
+                if len(line) >= 40:
+                    tag = line[:40].strip()
+                    if tag:
+                        tags.append(tag)
+                else:
+                    parts = line.split()
+                    if parts:
+                        tags.append(" ".join(parts[:-1]))
+    return sorted(list(set(tags)))
+
+def get_embedding(text):
+    payload = {"model": embed_model, "input": text}
+    try:
+        r = requests.post(f"{ollama_host}/api/embed", json=payload, timeout=60)
+        r.raise_for_status()
+        vec = r.json()["embeddings"][0]
+        return array("f", vec)
+    except Exception as e:
+        print(f"Error getting embedding: {e}")
+        return None
+
+def get_db_connection():
+    dsn = f"{db_config['host']}:{db_config['port']}/{db_config['dbname']}"
+    return oracledb.connect(
+        user=db_config['username'],
+        password=db_config['password'],
+        dsn=dsn
+    )
+
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Photo Match App</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+    <style>
+        body { background-color: #f8f9fa; padding-top: 2rem; }
+        .card { box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .result-card { transition: transform 0.2s; }
+        .result-card:hover { transform: translateY(-5px); }
+        .tag-badge { margin-right: 5px; margin-bottom: 5px; }
+        .form-section { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    </style>
+</head>
+<body class="container">
+    <h2 class="mb-4 text-center text-primary">Photo AI Matcher</h2>
+    
+    <div class="row mb-4">
+        <div class="col-md-8 offset-md-2">
+            <div class="form-section border-primary border-top border-3">
+                <form id="search-form">
+                    <div class="mb-4">
+                        <label class="form-label fw-bold">Vector Search Keywords (Max 5):</label>
+                        <p class="text-muted small mb-2">Select up to 5 descriptive keywords. The system will find the top 10 matches based on their semantic embedding (cosine similarity).</p>
+                        <select class="form-control tag-select" id="keywords" multiple="multiple" style="width: 100%;"></select>
+                        <div class="invalid-feedback" id="kw-error" style="display:none;">Maximum 5 keywords allowed for vector search.</div>
+                    </div>
+                    
+                    <hr class="text-muted">
+                    <h6 class="fw-bold mb-3 text-secondary">Optional Hard Filters</h6>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Must Include Exact Tags:</label>
+                        <p class="text-muted small mb-2">Only return photos that explicitly contain these tags in their metadata.</p>
+                        <select class="form-control tag-select" id="tags" multiple="multiple" style="width: 100%;"></select>
+                    </div>
+                    
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Created After (Date):</label>
+                            <input type="date" class="form-control" id="start_date">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Created Before (Date):</label>
+                            <input type="date" class="form-control" id="end_date">
+                        </div>
+                    </div>
+                    
+                    <div class="text-end mt-4">
+                        <button type="submit" class="btn btn-primary px-4 py-2" id="search-btn">
+                            <span class="spinner-border spinner-border-sm d-none" id="search-spinner" role="status" aria-hidden="true"></span>
+                            Find Photos
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <div id="results-container" class="row"></div>
+
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+    
+    <script>
+        const tagsData = {{ tags_json | safe }};
+        
+        $(document).ready(function() {
+            $('.tag-select').select2({
+                data: tagsData,
+                placeholder: "Type to search keywords/tags...",
+                allowClear: true
+            });
+            
+            // Limit keywords to 5
+            $('#keywords').on('change', function(e) {
+                if ($(this).val() && $(this).val().length > 5) {
+                    let vals = $(this).val().slice(0, 5);
+                    $(this).val(vals).trigger('change');
+                    $('#kw-error').show();
+                    setTimeout(() => $('#kw-error').fadeOut(), 3000);
+                }
+            });
+
+            $('#search-form').on('submit', function(e) {
+                e.preventDefault();
+                
+                $('#search-btn').prop('disabled', true);
+                $('#search-spinner').removeClass('d-none');
+                $('#results-container').empty();
+                
+                const payload = {
+                    keywords: $('#keywords').val() || [],
+                    tags: $('#tags').val() || [],
+                    start_date: $('#start_date').val(),
+                    end_date: $('#end_date').val()
+                };
+                
+                $.ajax({
+                    url: '/api/search',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify(payload),
+                    success: function(res) {
+                        $('#search-btn').prop('disabled', false);
+                        $('#search-spinner').addClass('d-none');
+                        
+                        if (res.error) {
+                            $('#results-container').html(`<div class="col-12"><div class="alert alert-danger">${res.error}</div></div>`);
+                            return;
+                        }
+                        
+                        if (res.results.length === 0) {
+                            $('#results-container').html('<div class="col-12"><div class="alert alert-info text-center">No photos found matching your criteria.</div></div>');
+                            return;
+                        }
+                        
+                        let html = '';
+                        res.results.forEach((item, index) => {
+                            let tagsHtml = (item.tags || []).map(t => `<span class="badge bg-secondary tag-badge">${t}</span>`).join('');
+                            let distanceHtml = item.distance > 0 ? `<span class="badge bg-info text-dark float-end">Distance: ${item.distance.toFixed(4)}</span>` : '';
+                            
+                            html += `
+                                <div class="col-md-6 col-lg-4 mb-4">
+                                    <div class="card h-100 result-card border-light">
+                                        <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
+                                            <strong class="text-primary">Match #${index + 1}</strong>
+                                            ${distanceHtml}
+                                        </div>
+                                        <div class="card-body">
+                                            <p class="card-text text-truncate" title="${item.file_path}">
+                                                <small class="text-muted fw-bold">FILE PATH</small><br>
+                                                <span class="font-monospace small">${item.file_path}</span>
+                                            </p>
+                                            <p class="card-text">
+                                                <small class="text-muted fw-bold">CAPTION</small><br>
+                                                ${item.caption || '<em>No caption</em>'}
+                                            </p>
+                                            <div class="mt-3">
+                                                <small class="text-muted fw-bold">TAGS</small><br>
+                                                ${tagsHtml}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            `;
+                        });
+                        $('#results-container').html(html);
+                    },
+                    error: function(err) {
+                        $('#search-btn').prop('disabled', false);
+                        $('#search-spinner').addClass('d-none');
+                        let msg = err.responseJSON && err.responseJSON.error ? err.responseJSON.error : "Unknown error occurred";
+                        $('#results-container').html(`<div class="col-12"><div class="alert alert-danger">${msg}</div></div>`);
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+</html>
+"""
+
+@app.route("/")
+def index():
+    select2_tags = [{"id": t, "text": t} for t in tags_list]
+    return render_template_string(HTML_TEMPLATE, tags_json=json.dumps(select2_tags))
+
+@app.route("/api/search", methods=["POST"])
+def search():
+    data = request.json
+    keywords = data.get("keywords", [])
+    filter_tags = data.get("tags", [])
+    start_date = data.get("start_date")
+    end_date = data.get("end_date")
+
+    if not keywords and not filter_tags and not start_date and not end_date:
+         return jsonify({"error": "Please provide keywords for vector search or use filters."}), 400
+
+    if len(keywords) > 5:
+        return jsonify({"error": "Maximum 5 keywords allowed for vector search."}), 400
+
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+
+        binds = {}
+        where_clauses = ["1=1"]
+        
+        # Base SELECT columns
+        cols = "p.file_path, p.caption, p.tags_json"
+        
+        if keywords:
+            embed_text = " ".join(keywords)
+            vec = get_embedding(embed_text)
+            if vec is None:
+                return jsonify({"error": "Failed to generate embeddings via Ollama. Check if Ollama is running."}), 500
+            
+            binds["vec"] = vec
+            cols += ", VECTOR_DISTANCE(p.embedding, :vec, COSINE) as dist"
+            order_by = " ORDER BY dist ASC "
+        else:
+            cols += ", 0 as dist"
+            order_by = " ORDER BY p.created_ts DESC "
+
+        # Add exact JSON tags filter
+        if filter_tags:
+            for tag in filter_tags:
+                tag_clean = tag.replace('"', '\\"')
+                # Use JSON_EXISTS with literal value exactly like q1.sql
+                where_clauses.append(f"json_exists(p.tags_json, '$?(@ == \"{tag_clean}\")')")
+
+        # Add date range filters
+        if start_date:
+            binds["start_date"] = start_date + " 00:00:00"
+            where_clauses.append("p.created_ts >= TO_TIMESTAMP(:start_date, 'YYYY-MM-DD HH24:MI:SS')")
+        if end_date:
+            binds["end_date"] = end_date + " 23:59:59"
+            where_clauses.append("p.created_ts <= TO_TIMESTAMP(:end_date, 'YYYY-MM-DD HH24:MI:SS')")
+
+        where_sql = " AND ".join(where_clauses)
+        sql = f"SELECT {cols} FROM photo_ai p WHERE {where_sql} {order_by} FETCH FIRST 10 ROWS ONLY"
+        
+        cur.execute(sql, binds)
+        rows = cur.fetchall()
+        
+        results = []
+        for row in rows:
+            tags_data = []
+            if row[2]:
+                try:
+                    raw_tags = row[2].read() if hasattr(row[2], 'read') else row[2]
+                    if isinstance(raw_tags, str):
+                        tags_data = json.loads(raw_tags)
+                    else:
+                        tags_data = raw_tags
+                except Exception as e:
+                    print("Error parsing JSON tags:", e)
+                    tags_data = []
+            
+            caption_val = row[1].read() if hasattr(row[1], 'read') else row[1]
+            
+            results.append({
+                "file_path": row[0],
+                "caption": caption_val,
+                "tags": tags_data,
+                "distance": row[3]
+            })
+
+        return jsonify({"results": results})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+def main():
+    parser = argparse.ArgumentParser(description="Run the Photo Match AI App")
+    parser.add_argument("--host", required=True, help="Oracle DB Host")
+    parser.add_argument("--port", required=True, help="Oracle DB Port")
+    parser.add_argument("--username", required=True, help="Oracle DB Username")
+    parser.add_argument("--password", required=True, help="Oracle DB Password")
+    parser.add_argument("--dbname", required=True, help="Oracle DB Name (Service or SID)")
+    parser.add_argument("--ollama-host", default=os.environ.get("OLLAMA_HOST", "http://localhost:11434"), help="Ollama Host URL")
+    parser.add_argument("--embed-model", default=os.environ.get("EMBED_MODEL", "mxbai-embed-large"), help="Embedding model name")
+    parser.add_argument("--web-port", type=int, default=5000, help="Port to run the web server on")
+
+    args = parser.parse_args()
+
+    # Assign globals
+    global db_config, ollama_host, embed_model, tags_list
+    db_config = {
+        "host": args.host,
+        "port": args.port,
+        "username": args.username,
+        "password": args.password,
+        "dbname": args.dbname
+    }
+    ollama_host = args.ollama_host
+    embed_model = args.embed_model
+
+    print("Loading tags from tag-count.txt...", end=" ")
+    tags_list = load_tags()
+    print(f"Loaded {len(tags_list)} unique tags.")
+
+    print(f"Starting web server on http://localhost:{args.web_port}")
+    # Disable flask output to keep CLI clean
+    logging.getLogger('werkzeug').setLevel(logging.ERROR)
+    app.run(host="0.0.0.0", port=args.web_port, debug=False)
+
+if __name__ == "__main__":
+    main()
