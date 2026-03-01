@@ -92,7 +92,11 @@ def parse_llava_response(resp_value) -> Dict:
     # Try to locate a JSON object inside
     m = JSON_OBJ_RE.search(s)
     if m:
-        return json.loads(m.group(0))
+        try:
+            return json.loads(m.group(0))
+        except json.JSONDecodeError:
+            # If JSON decoding fails, treat the whole response as a plain caption
+            pass
 
     # Otherwise treat as plain caption text (maybe quoted)
     s = s.strip().strip('"').strip()
