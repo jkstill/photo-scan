@@ -13,6 +13,7 @@ from typing import Dict, List, Optional, Tuple
 
 import requests
 import oracledb
+from PIL import Image, ExifTags
 
 
 FENCE_LINE_RE = re.compile(r"(?m)^\s*```[a-zA-Z]*\s*$")
@@ -120,6 +121,45 @@ def normalize_caption_tags(obj: Dict) -> Tuple[str, List[str]]:
             tags_out.append(tt)
 
     return caption, tags_out
+
+
+def extract_exif(image_path: str) -> Optional[List[Dict[str, str]]]:
+    """Extract EXIF data from the image including sub-IFDs and return as a list of tag/value objects."""
+    try:
+        with Image.open(image_path) as img:
+            exif_obj = img.getexif()
+            if not exif_obj:
+                return None
+
+            exif_data = []
+
+            def add_tags(ifd, tag_map):
+                for k, v in ifd.items():
+                    tag_name = tag_map.get(k, k)
+                    val = v
+                    if isinstance(v, bytes):
+                        val = v.decode(errors="replace").strip("\x00")
+                    exif_data.append({"tag": str(tag_name), "val": str(val)})
+
+            # Top-level tags
+            add_tags(exif_obj, ExifTags.TAGS)
+
+            # Sub-IFDs (Exif, GPSInfo, Interop)
+            for ifd_id in [ExifTags.IFD.Exif, ExifTags.IFD.GPSInfo, ExifTags.IFD.Interop]:
+                try:
+                    sub_ifd = exif_obj.get_ifd(ifd_id)
+                    if sub_ifd:
+                        tag_map = ExifTags.TAGS
+                        if ifd_id == ExifTags.IFD.GPSInfo:
+                            tag_map = ExifTags.GPSTAGS
+                        add_tags(sub_ifd, tag_map)
+                except Exception:
+                    pass
+
+            return exif_data if exif_data else None
+    except Exception as e:
+        logging.getLogger("photo_loader").debug(f"Could not extract EXIF for {image_path}: {e}")
+        return None
 
 
 def ollama_generate_caption_tags(
@@ -231,8 +271,8 @@ def main() -> int:
     cur = conn.cursor()
 
     ins_sql = """
-    insert into photo_ai (file_path, file_sha256, caption, tags_json, embed_model, embedding)
-    values (:p, :s, :c, :t, :m, :e)
+    insert into photo_ai (file_path, file_sha256, caption, tags_json, embed_model, embedding, exif_json)
+    values (:p, :s, :c, :t, :m, :e, :ex)
     """
 
     inserted = 0
@@ -272,6 +312,9 @@ def main() -> int:
                     retries=args.embed_retries,
                 )
 
+                exif_data = extract_exif(full_path)
+                exif_json_str = json.dumps(exif_data) if exif_data else None
+
                 cur.execute(ins_sql, {
                     "p": full_path,
                     "s": sha,
@@ -279,6 +322,7 @@ def main() -> int:
                     "t": json.dumps(tags),
                     "m": args.embed_model,
                     "e": vec,
+                    "ex": exif_json_str,
                 })
 
                 inserted += 1

@@ -9,6 +9,7 @@ create table photo_ai (
   embed_model  varchar2(64) default 'mxbai-embed-large',
   embedding    vector(1024, float32),
   created_ts   timestamp default systimestamp,
+  exif_json    json,
   constraint uq_photo_ai unique (file_sha256)
 );
 

@@ -22,7 +22,8 @@ export ORACLE_PASS='tiger'
 # Ollama host (if same box, localhost is fine)
 export OLLAMA_HOST='http://oraserver:11434'
 
-./load-photos-walk.py /mnt/photos \
+#./load-photos-walk.py /mnt/photos \
+./load-photos-walk.py /mnt/photos/vacation/Lincoln-City/2021 \
   --commit-every $commitEvery \
   --limit $imageLimitCount \
   --error-log $logFile
