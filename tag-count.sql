@@ -1,10 +1,13 @@
 
-spool tag-count.txt
+
+@clear_for_spool
 
 set pagesize 0
 set linesize 100 trimspool on
 col tag format a40
 col tag_count format 999999
+
+spool tag-count.txt
 
 with tag_source as (
 select p.photo_id,
@@ -25,5 +28,5 @@ order by 2
 /
 
 spool off
-ed tag-count.txt
+--ed tag-count.txt
 

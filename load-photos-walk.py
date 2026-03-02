@@ -22,14 +22,11 @@ WHITESPACE_RE = re.compile(r"\s+")
 
 
 DEFAULT_PROMPT = (
-    'Return ONLY JSON. No markdown. No code fences.\n\n'
-    'Exactly:\n{"caption":"string","tags":["string"]}\n\n'
-    "Rules:\n"
-    "- caption: one sentence\n"
-    "- tags: 12-20 items\n"
-    "- tags: lowercase, words separated by spaces\n"
-    "- tags: nouns or noun phrases\n"
-    "- no extra keys\n"
+    'Analyze the image and provide a caption and tags in ONLY two lines.\n'
+    'NO markdown. NO code fences. NO column headers.\n'
+    'DO NOT use prefixes like "Line 1:", "Caption:", or "Tags:".\n\n'
+    'Line 1: A single sentence describing the image.\n'
+    'Line 2: 12 to 20 lowercase tags separated by tabs.\n'
 )
 
 
@@ -74,9 +71,10 @@ def iter_images(root_dir: str) -> str:
 
 def parse_llava_response(resp_value) -> Dict:
     """
-    Ollama /api/generate returns JSON with key "response".
-    Usually response is a string, sometimes it may behave oddly.
-    This function returns a dict with keys caption/tags when possible.
+    Ollama /api/generate returns a string.
+    We expect it to be TSV format:
+    line 1: caption
+    line 2: tag1 \t tag2 \t tag3 ...
     """
     if isinstance(resp_value, dict):
         return resp_value
@@ -89,18 +87,32 @@ def parse_llava_response(resp_value) -> Dict:
     # Strip fenced code blocks, even if indented
     s = FENCE_LINE_RE.sub("", s).strip()
 
-    # Try to locate a JSON object inside
-    m = JSON_OBJ_RE.search(s)
-    if m:
-        try:
-            return json.loads(m.group(0))
-        except json.JSONDecodeError:
-            # If JSON decoding fails, treat the whole response as a plain caption
-            pass
+    lines = [line.strip() for line in s.split('\n') if line.strip()]
+    
+    caption = ""
+    tags = []
+    
+    if len(lines) >= 1:
+        caption = lines[0]
+        # Remove common prefixes from caption
+        caption = re.sub(r'(?i)^(line 1:|caption:)\s*', '', caption).strip()
+        # Remove surrounding quotes
+        caption = caption.strip('"\'')
+    
+    if len(lines) >= 2:
+        tags_line = lines[1]
+        # Remove common prefixes from tags line (can be multiple like 'Line 2: tags:')
+        tags_line = re.sub(r'(?i)^(line 2:|tags:)\s*', '', tags_line).strip()
+        tags_line = re.sub(r'(?i)^(tags:)\s*', '', tags_line).strip()
+        
+        # Try splitting by tab first
+        tags = [t.strip().strip('"\'') for t in tags_line.split('\t') if t.strip()]
+        
+        # Fallback if separated by commas instead of tabs
+        if len(tags) <= 1 and ',' in tags_line:
+             tags = [t.strip().strip('"\'') for t in tags_line.split(',') if t.strip()]
 
-    # Otherwise treat as plain caption text (maybe quoted)
-    s = s.strip().strip('"').strip()
-    return {"caption": s, "tags": []}
+    return {"caption": caption, "tags": tags}
 
 
 def normalize_caption_tags(obj: Dict) -> Tuple[str, List[str]]:
