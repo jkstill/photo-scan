@@ -142,7 +142,36 @@
             object-fit: cover;
             border-bottom: 1px solid var(--border);
             background: #f1f5f9;
+            cursor: zoom-in;
         }
+        .photo-img:hover { opacity: 0.9; }
+
+        /* Zoom Modal */
+        #zoom-modal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.9);
+            align-items: center;
+            justify-content: center;
+            z-index: 200;
+        }
+        #zoom-img {
+            max-width: 95%;
+            max-height: 95%;
+            object-fit: contain;
+        }
+        #zoom-close {
+            position: absolute;
+            top: 20px;
+            right: 30px;
+            color: white;
+            font-size: 40px;
+            font-weight: bold;
+            cursor: pointer;
+            z-index: 201;
+        }
+        
         .photo-info { padding: 15px; flex-grow: 1; display: flex; flex-direction: column; }
         .photo-caption { font-size: 14px; margin-bottom: 10px; flex-grow: 1;}
         .photo-meta { font-size: 12px; color: #64748b; margin-bottom: 10px; }
@@ -259,6 +288,12 @@
             <tbody></tbody>
         </table>
     </div>
+</div>
+
+<!-- Zoom Modal -->
+<div id="zoom-modal" onclick="closeZoom()">
+    <span id="zoom-close" onclick="closeZoom()">&times;</span>
+    <img id="zoom-img" src="" alt="Zoomed Photo">
 </div>
 
 <script>
@@ -493,9 +528,10 @@
             card.className = 'photo-card';
             
             const tagHtml = (r.tags || []).map(t => `<span class="tag-badge">${t}</span>`).join('');
+            const imgPath = encodeURIComponent(r.file_path);
             
             card.innerHTML = `
-                <img class="photo-img" src="/image?path=${encodeURIComponent(r.file_path)}" alt="Photo">
+                <img class="photo-img" src="/image?path=${imgPath}" alt="Photo" onclick="openZoom('/image?path=${imgPath}')">
                 <div class="photo-info">
                     <div class="photo-meta">
                         Date: ${r.date || 'Unknown'} | Score: ${r.distance}
@@ -528,6 +564,24 @@
     function closeModal() {
         document.getElementById('exif-modal').style.display = 'none';
     }
+
+    function openZoom(src) {
+        document.getElementById('zoom-img').src = src;
+        document.getElementById('zoom-modal').style.display = 'flex';
+    }
+
+    function closeZoom() {
+        document.getElementById('zoom-modal').style.display = 'none';
+        document.getElementById('zoom-img').src = '';
+    }
+
+    // Close zoom on escape key
+    document.addEventListener('keydown', function(event) {
+        if (event.key === "Escape") {
+            closeZoom();
+            closeModal();
+        }
+    });
 </script>
 
 </body>
