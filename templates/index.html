@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Photo AI Search</title>
+    <style>
+        :root {
+            --primary: #3b82f6;
+            --bg: #f8fafc;
+            --surface: #ffffff;
+            --text: #1e293b;
+            --border: #e2e8f0;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg);
+            color: var(--text);
+            display: flex;
+            height: 100vh;
+        }
+        .sidebar {
+            width: 350px;
+            background: var(--surface);
+            border-right: 1px solid var(--border);
+            padding: 20px;
+            box-sizing: border-box;
+            overflow-y: auto;
+            flex-shrink: 0;
+        }
+        .main-content {
+            flex-grow: 1;
+            padding: 20px;
+            overflow-y: auto;
+        }
+        h1, h2, h3 { margin-top: 0; }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        input[type="date"] {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            width: 100%;
+            font-size: 16px;
+        }
+        button:hover { background-color: #2563eb; }
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 14px;
+        }
+        
+        /* Tag Input Styles */
+        .tag-container {
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 5px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            position: relative;
+        }
+        .tag-chip {
+            background: #e0e7ff;
+            color: #1e40af;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .tag-chip span { cursor: pointer; font-weight: bold; }
+        .tag-input {
+            border: none;
+            outline: none;
+            flex-grow: 1;
+            min-width: 100px;
+            padding: 4px;
+            font-size: 14px;
+        }
+        .autocomplete-list {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: white;
+            border: 1px solid var(--border);
+            border-top: none;
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 10;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+            display: none;
+        }
+        .autocomplete-item {
+            padding: 8px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .autocomplete-item:hover { background: #f1f5f9; }
+
+        /* Results Grid */
+        .results-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        .photo-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .photo-img {
+            width: 100%;
+            height: 200px;
+            object-fit: cover;
+            border-bottom: 1px solid var(--border);
+            background: #f1f5f9;
+        }
+        .photo-info { padding: 15px; flex-grow: 1; display: flex; flex-direction: column; }
+        .photo-caption { font-size: 14px; margin-bottom: 10px; flex-grow: 1;}
+        .photo-meta { font-size: 12px; color: #64748b; margin-bottom: 10px; }
+        .photo-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px;}
+        .tag-badge { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 11px; color: #475569;}
+        .btn-exif {
+            background: transparent;
+            color: var(--primary);
+            border: 1px solid var(--primary);
+            padding: 5px 10px;
+            font-size: 12px;
+            width: auto;
+            align-self: flex-start;
+        }
+        .btn-exif:hover { background: #eff6ff; color: var(--primary); }
+
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+        }
+        .modal-content {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 10px;
+        }
+        .close-btn { cursor: pointer; font-size: 20px; font-weight: bold; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th, td { border: 1px solid var(--border); padding: 8px; text-align: left; }
+        th { background: #f8fafc; font-weight: bold;}
+        
+        .loading {
+            text-align: center;
+            padding: 50px;
+            font-size: 18px;
+            color: #64748b;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+<div class="sidebar">
+    <h2>Photo AI Search</h2>
+    
+    <div class="form-group">
+        <label>Vector Search Keywords (up to 5)</label>
+        <div class="tag-container" id="keyword-container">
+            <input type="text" class="tag-input" id="keyword-input" placeholder="Type a keyword..." autocomplete="off">
+            <div class="autocomplete-list" id="keyword-autocomplete"></div>
+        </div>
+        <small style="color: #64748b; font-size: 11px;">Search by AI semantic similarity</small>
+    </div>
+
+    <div class="form-group">
+        <label>Required Tags Filter (Exact Match)</label>
+        <div class="tag-container" id="filter-container">
+            <input type="text" class="tag-input" id="filter-input" placeholder="Type a tag..." autocomplete="off">
+            <div class="autocomplete-list" id="filter-autocomplete"></div>
+        </div>
+        <small style="color: #64748b; font-size: 11px;">Only show photos containing these exact tags</small>
+    </div>
+
+    <div class="form-group">
+        <label>Date Range (EXIF Date)</label>
+        <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+            <input type="date" id="start-date">
+            <input type="date" id="end-date">
+        </div>
+        <div class="checkbox-group">
+            <input type="checkbox" id="include-null" checked>
+            <label for="include-null" style="margin:0; font-weight:normal;">Include photos without date data</label>
+        </div>
+    </div>
+
+    <button onclick="performSearch()">Search Photos</button>
+</div>
+
+<div class="main-content">
+    <div class="loading" id="loading">Searching... (This might take a moment to generate embeddings and query the DB)</div>
+    <div class="results-grid" id="results">
+        <!-- Results injected here -->
+    </div>
+</div>
+
+<!-- EXIF Modal -->
+<div class="modal" id="exif-modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 style="margin:0;">EXIF Data</h3>
+            <span class="close-btn" onclick="closeModal()">&times;</span>
+        </div>
+        <table id="exif-table">
+            <thead>
+                <tr><th>Tag</th><th>Value</th></tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    let allTags = [];
+    const keywords = [];
+    const filterTags = [];
+
+    // Fetch tags for autocomplete on load
+    fetch('/api/tags')
+        .then(r => r.json())
+        .then(tags => {
+            allTags = tags;
+        });
+
+    function setupTagInput(inputId, containerId, autocompleteId, dataArray, maxLimit) {
+        const input = document.getElementById(inputId);
+        const autocomplete = document.getElementById(autocompleteId);
+        const container = document.getElementById(containerId);
+
+        input.addEventListener('input', () => {
+            const val = input.value.toLowerCase();
+            autocomplete.innerHTML = '';
+            if (!val) {
+                autocomplete.style.display = 'none';
+                return;
+            }
+            
+            const matches = allTags.filter(t => t.toLowerCase().includes(val) && !dataArray.includes(t)).slice(0, 10);
+            if (matches.length > 0) {
+                matches.forEach(match => {
+                    const div = document.createElement('div');
+                    div.className = 'autocomplete-item';
+                    div.textContent = match;
+                    div.onclick = () => addTag(match);
+                    autocomplete.appendChild(div);
+                });
+                autocomplete.style.display = 'block';
+            } else {
+                autocomplete.style.display = 'none';
+            }
+        });
+
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && input.value.trim()) {
+                e.preventDefault();
+                addTag(input.value.trim().toLowerCase());
+            }
+        });
+
+        document.addEventListener('click', (e) => {
+            if (!container.contains(e.target)) autocomplete.style.display = 'none';
+        });
+
+        function addTag(tag) {
+            if (dataArray.includes(tag)) return;
+            if (maxLimit && dataArray.length >= maxLimit) {
+                alert(`Maximum ${maxLimit} allowed here.`);
+                return;
+            }
+            dataArray.push(tag);
+            input.value = '';
+            autocomplete.style.display = 'none';
+            renderTags();
+        }
+
+        function renderTags() {
+            // Remove existing chips
+            container.querySelectorAll('.tag-chip').forEach(el => el.remove());
+            
+            dataArray.forEach(tag => {
+                const chip = document.createElement('div');
+                chip.className = 'tag-chip';
+                chip.innerHTML = `${tag} <span onclick="removeTag('${tag}')">&times;</span>`;
+                container.insertBefore(chip, input);
+            });
+        }
+
+        // Expose remove function globally for the inline onclick handler
+        window[`remove_${inputId}`] = (tag) => {
+            const index = dataArray.indexOf(tag);
+            if (index > -1) dataArray.splice(index, 1);
+            renderTags();
+        }
+        
+        // Wrap the generic inline onclick handler for this specific container
+        window.removeTag = function(tag) {
+           if (inputId === 'keyword-input') window[`remove_keyword-input`](tag);
+           if (inputId === 'filter-input') window[`remove_filter-input`](tag);
+        }
+    }
+
+    setupTagInput('keyword-input', 'keyword-container', 'keyword-autocomplete', keywords, 5);
+    
+    // Create a local scope override for the remove tag function so the correct array gets spliced
+    const origRenderKw = renderKwTags;
+    function renderKwTags() {
+        const c = document.getElementById('keyword-container');
+        c.querySelectorAll('.tag-chip').forEach(el => el.remove());
+        const input = document.getElementById('keyword-input');
+        keywords.forEach(tag => {
+            const chip = document.createElement('div');
+            chip.className = 'tag-chip';
+            chip.innerHTML = `${tag} <span onclick="removeKw('${tag}')">&times;</span>`;
+            c.insertBefore(chip, input);
+        });
+    }
+    window.removeKw = (tag) => {
+        const idx = keywords.indexOf(tag);
+        if (idx > -1) keywords.splice(idx, 1);
+        renderKwTags();
+    }
+    
+    function renderFilterTags() {
+        const c = document.getElementById('filter-container');
+        c.querySelectorAll('.tag-chip').forEach(el => el.remove());
+        const input = document.getElementById('filter-input');
+        filterTags.forEach(tag => {
+            const chip = document.createElement('div');
+            chip.className = 'tag-chip';
+            chip.innerHTML = `${tag} <span onclick="removeFilter('${tag}')">&times;</span>`;
+            c.insertBefore(chip, input);
+        });
+    }
+    window.removeFilter = (tag) => {
+        const idx = filterTags.indexOf(tag);
+        if (idx > -1) filterTags.splice(idx, 1);
+        renderFilterTags();
+    }
+
+    // Rewrite setup functions to use specific renderer
+    function setupInput(inputId, autocompleteId, dataArray, maxLimit, renderFn) {
+        const input = document.getElementById(inputId);
+        const autocomplete = document.getElementById(autocompleteId);
+
+        input.addEventListener('input', () => {
+            const val = input.value.toLowerCase();
+            autocomplete.innerHTML = '';
+            if (!val) { autocomplete.style.display = 'none'; return; }
+            
+            const matches = allTags.filter(t => t.toLowerCase().includes(val) && !dataArray.includes(t)).slice(0, 10);
+            if (matches.length > 0) {
+                matches.forEach(match => {
+                    const div = document.createElement('div');
+                    div.className = 'autocomplete-item';
+                    div.textContent = match;
+                    div.onclick = () => {
+                        if(maxLimit && dataArray.length >= maxLimit) { alert(`Limit ${maxLimit}`); return; }
+                        dataArray.push(match);
+                        input.value = '';
+                        autocomplete.style.display = 'none';
+                        renderFn();
+                    };
+                    autocomplete.appendChild(div);
+                });
+                autocomplete.style.display = 'block';
+            } else {
+                autocomplete.style.display = 'none';
+            }
+        });
+        
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && input.value.trim()) {
+                e.preventDefault();
+                const t = input.value.trim().toLowerCase();
+                if(!dataArray.includes(t)) {
+                    if(maxLimit && dataArray.length >= maxLimit) { alert(`Limit ${maxLimit}`); return; }
+                    dataArray.push(t);
+                    input.value = '';
+                    autocomplete.style.display = 'none';
+                    renderFn();
+                }
+            }
+        });
+    }
+
+    setupInput('keyword-input', 'keyword-autocomplete', keywords, 5, renderKwTags);
+    setupInput('filter-input', 'filter-autocomplete', filterTags, 0, renderFilterTags);
+
+
+    async function performSearch() {
+        if (keywords.length === 0) {
+            alert("Please enter at least one vector search keyword.");
+            return;
+        }
+
+        const payload = {
+            keywords: keywords,
+            filter_tags: filterTags,
+            start_date: document.getElementById('start-date').value,
+            end_date: document.getElementById('end-date').value,
+            include_null_date: document.getElementById('include-null').checked
+        };
+
+        document.getElementById('results').innerHTML = '';
+        document.getElementById('loading').style.display = 'block';
+
+        try {
+            const res = await fetch('/api/search', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            
+            document.getElementById('loading').style.display = 'none';
+            
+            if (data.error) {
+                alert("Error: " + data.error);
+                return;
+            }
+
+            renderResults(data);
+        } catch(e) {
+            document.getElementById('loading').style.display = 'none';
+            alert("Search failed: " + e);
+        }
+    }
+
+    let currentResultsData = [];
+
+    function renderResults(results) {
+        currentResultsData = results;
+        const container = document.getElementById('results');
+        
+        if (results.length === 0) {
+            container.innerHTML = '<div style="grid-column: 1/-1; text-align:center; padding: 40px; color:#64748b;">No matching photos found.</div>';
+            return;
+        }
+
+        results.forEach((r, idx) => {
+            const card = document.createElement('div');
+            card.className = 'photo-card';
+            
+            const tagHtml = (r.tags || []).map(t => `<span class="tag-badge">${t}</span>`).join('');
+            
+            card.innerHTML = `
+                <img class="photo-img" src="/image?path=${encodeURIComponent(r.file_path)}" alt="Photo">
+                <div class="photo-info">
+                    <div class="photo-meta">
+                        Date: ${r.date || 'Unknown'} | Score: ${r.distance}
+                    </div>
+                    <div class="photo-caption">${r.caption}</div>
+                    <div class="photo-tags">${tagHtml}</div>
+                    ${r.exif && r.exif.length > 0 ? `<button class="btn-exif" onclick="showExif(${idx})">View EXIF Data</button>` : '<div style="font-size:12px;color:#94a3b8;">No EXIF</div>'}
+                </div>
+            `;
+            container.appendChild(card);
+        });
+    }
+
+    function showExif(idx) {
+        const item = currentResultsData[idx];
+        const tbody = document.querySelector('#exif-table tbody');
+        tbody.innerHTML = '';
+        
+        if(item.exif) {
+            item.exif.forEach(row => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td>${row.tag}</td><td>${row.val}</td>`;
+                tbody.appendChild(tr);
+            });
+        }
+        
+        document.getElementById('exif-modal').style.display = 'flex';
+    }
+
+    function closeModal() {
+        document.getElementById('exif-modal').style.display = 'none';
+    }
+</script>
+
+</body>
+</html>
