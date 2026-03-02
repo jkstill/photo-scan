@@ -264,6 +264,11 @@
         </div>
     </div>
 
+    <div class="form-group">
+        <label>Max Results</label>
+        <input type="number" id="result-limit" value="{{ default_limit }}" min="1" max="100" style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 4px; box-sizing: border-box;">
+    </div>
+
     <button onclick="performSearch()">Search Photos</button>
 </div>
 
@@ -484,7 +489,8 @@
             filter_tags: filterTags,
             start_date: document.getElementById('start-date').value,
             end_date: document.getElementById('end-date').value,
-            include_null_date: document.getElementById('include-null').checked
+            include_null_date: document.getElementById('include-null').checked,
+            limit: document.getElementById('result-limit').value
         };
 
         document.getElementById('results').innerHTML = '';

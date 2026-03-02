@@ -47,6 +47,12 @@ def search():
     end_date = data.get('end_date')
     include_null_date = data.get('include_null_date', True)
     
+    # Retrieve limit from frontend, fallback to server default
+    try:
+        req_limit = int(data.get('limit', config['limit']))
+    except ValueError:
+        req_limit = config['limit']
+    
     if not keywords:
         return jsonify({"error": "At least one keyword is required for vector search"}), 400
         
@@ -92,7 +98,8 @@ def search():
                 elif not include_null_date:
                      query += " AND exif_date_original IS NOT NULL"
                     
-                query += f" ORDER BY dist FETCH FIRST {config['limit']} ROWS ONLY"
+                query += " ORDER BY dist FETCH FIRST :req_limit ROWS ONLY"
+                params["req_limit"] = req_limit
                 
                 cur.execute(query, params)
                 
