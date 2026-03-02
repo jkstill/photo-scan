@@ -63,5 +63,6 @@ export OLLAMA_HOST="$ollamaHost"
 ./load-photos-walk.py /mnt/photos \
   --commit-every $commitEvery \
   --limit $imageLimitCount \
+  --vision-model 'gemma3:12b' \
   --error-log $logFile
 

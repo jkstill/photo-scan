@@ -29,6 +29,109 @@ DEFAULT_PROMPT = (
     'Line 2: 12 to 20 lowercase tags separated by tabs.\n'
 )
 
+import re
+import json
+from typing import List
+
+_PREFIX_RE = re.compile(r'(?i)^\s*(line\s*\d+\s*:\s*)?(tags?\s*:\s*)+')
+
+def normalize_tags(text: str, *, lowercase: bool = False) -> List[str]:
+    """
+    Normalize LLM tag output into a list of tags.
+
+    Heuristics:
+      - Remove common prefixes: "Line 2:", "tags:", repeated prefixes, etc.
+      - If the whole thing parses as JSON (list or object with 'tags'), use that.
+      - Else split on common delimiters: commas, semicolons, pipes, tabs.
+      - Else fall back to splitting on runs of whitespace.
+      - Strip surrounding quotes and trailing punctuation.
+      - De-dupe while preserving order.
+
+    Note: This is intentionally permissive.
+    """
+    if text is None:
+        return []
+
+    s = text.strip()
+
+    # Drop surrounding code fences if the model wraps output
+    s = re.sub(r'^\s*```(?:json|text|)\s*', '', s, flags=re.IGNORECASE)
+    s = re.sub(r'\s*```\s*$', '', s)
+
+    # Remove common prefixes like "Line 2: tags:" or repeated "tags:"
+    s = _PREFIX_RE.sub('', s).strip()
+
+    # Fast path: try JSON
+    # Handles: ["a","b"] OR {"tags":["a","b"]} OR {"Tags":[...]}
+    try:
+        obj = json.loads(s)
+        if isinstance(obj, list):
+            raw = obj
+        elif isinstance(obj, dict):
+            # look for a tags key (case-insensitive)
+            tags_key = next((k for k in obj.keys() if str(k).lower() == "tags"), None)
+            raw = obj.get(tags_key, []) if tags_key is not None else []
+        else:
+            raw = []
+        if isinstance(raw, list):
+            candidates = [str(x) for x in raw if x is not None]
+        else:
+            candidates = []
+    except Exception:
+        candidates = None
+
+    if candidates is None:
+        # Normalize common separators to newline, then split
+        # Keep commas/semicolons/pipes/tabs as primary delimiters.
+        s2 = re.sub(r'[,\t;|]+', '\n', s)
+
+        # If we didn't actually introduce any splits, fall back to whitespace splitting.
+        if '\n' not in s2:
+            parts = re.split(r'\s+', s)
+        else:
+            parts = [p for p in s2.splitlines()]
+
+        candidates = parts
+
+    out: List[str] = []
+    seen = set()
+
+    for t in candidates:
+        if t is None:
+            continue
+
+        t = str(t)
+
+        # Convert literal escape sequences into actual chars
+        # (LLMs sometimes output "\n" and "\t" as two characters)
+        t = t.replace("\\n", " ").replace("\\t", " ")
+
+        # Trim whitespace and surrounding quotes/brackets
+        t = t.strip().strip('"\'')
+
+        # Remove wrapping brackets if a single token includes them
+        t = t.strip().strip("[](){}")
+
+        # Collapse internal whitespace
+        t = re.sub(r'\s+', ' ', t).strip()
+
+        # Drop trailing punctuation that commonly sticks
+        t = re.sub(r'[.,;:]+$', '', t).strip()
+
+        if not t:
+            continue
+
+        if lowercase:
+            t = t.lower()
+
+        # De-dupe (case-insensitive de-dupe if lowercase=True, else exact)
+        key = t if lowercase else t.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(t)
+
+    return out
 
 def setup_logging(log_file: str) -> logging.Logger:
     logger = logging.getLogger("photo_loader")
@@ -105,12 +208,11 @@ def parse_llava_response(resp_value) -> Dict:
         tags_line = re.sub(r'(?i)^(line 2:|tags:)\s*', '', tags_line).strip()
         tags_line = re.sub(r'(?i)^(tags:)\s*', '', tags_line).strip()
         
-        # Try splitting by tab first
-        tags = [t.strip().strip('"\'') for t in tags_line.split('\t') if t.strip()]
-        
-        # Fallback if separated by commas instead of tabs
-        if len(tags) <= 1 and ',' in tags_line:
-             tags = [t.strip().strip('"\'') for t in tags_line.split(',') if t.strip()]
+        tags_line = lines[1]
+        tags_line = re.sub(r'(?i)^(line 2:|tags:)\s*', '', tags_line).strip()
+        tags_line = re.sub(r'(?i)^(tags:)\s*', '', tags_line).strip()
+
+        tags = normalize_tags(tags_line, lowercase=True)
 
     return {"caption": caption, "tags": tags}
 
