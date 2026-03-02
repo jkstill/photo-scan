@@ -175,6 +175,17 @@
         .photo-info { padding: 15px; flex-grow: 1; display: flex; flex-direction: column; }
         .photo-caption { font-size: 14px; margin-bottom: 10px; flex-grow: 1;}
         .photo-meta { font-size: 12px; color: #64748b; margin-bottom: 10px; }
+        .file-path-display { 
+            font-size: 11px; 
+            color: #475569; 
+            background: #f1f5f9; 
+            padding: 4px; 
+            border-radius: 4px; 
+            margin-bottom: 10px; 
+            word-break: break-all;
+            display: none;
+            font-family: monospace;
+        }
         .photo-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px;}
         .tag-badge { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 11px; color: #475569;}
         .btn-exif {
@@ -267,6 +278,13 @@
     <div class="form-group">
         <label>Max Results</label>
         <input type="number" id="result-limit" value="{{ default_limit }}" min="1" max="100" style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 4px; box-sizing: border-box;">
+    </div>
+    
+    <div class="form-group">
+        <div class="checkbox-group">
+            <input type="checkbox" id="show-paths">
+            <label for="show-paths" style="margin:0; font-weight:normal;">Show file paths on results</label>
+        </div>
     </div>
 
     <button onclick="performSearch()">Search Photos</button>
@@ -535,6 +553,7 @@
             
             const tagHtml = (r.tags || []).map(t => `<span class="tag-badge">${t}</span>`).join('');
             const imgPath = encodeURIComponent(r.file_path);
+            const pathStyle = document.getElementById('show-paths').checked ? 'display:block;' : 'display:none;';
             
             card.innerHTML = `
                 <img class="photo-img" src="/image?path=${imgPath}" alt="Photo" onclick="openZoom('/image?path=${imgPath}')">
@@ -542,6 +561,7 @@
                     <div class="photo-meta">
                         Date: ${r.date || 'Unknown'} | Score: ${r.distance}
                     </div>
+                    <div class="file-path-display" style="${pathStyle}">${r.file_path}</div>
                     <div class="photo-caption">${r.caption}</div>
                     <div class="photo-tags">${tagHtml}</div>
                     ${r.exif && r.exif.length > 0 ? `<button class="btn-exif" onclick="showExif(${idx})">View EXIF Data</button>` : '<div style="font-size:12px;color:#94a3b8;">No EXIF</div>'}
@@ -550,6 +570,13 @@
             container.appendChild(card);
         });
     }
+
+    document.getElementById('show-paths').addEventListener('change', function() {
+        const displayStyle = this.checked ? 'block' : 'none';
+        document.querySelectorAll('.file-path-display').forEach(el => {
+            el.style.display = displayStyle;
+        });
+    });
 
     function showExif(idx) {
         const item = currentResultsData[idx];
