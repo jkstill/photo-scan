@@ -238,12 +238,42 @@
             color: #64748b;
             display: none;
         }
+        .sidebar-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .btn-hide-sidebar {
+            width: auto;
+            padding: 5px 10px;
+            font-size: 12px;
+            background: transparent;
+            color: var(--primary);
+            border: 1px solid var(--primary);
+        }
+        .btn-hide-sidebar:hover { background: #eff6ff; color: var(--primary); }
+        #show-sidebar-btn {
+            display: none;
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            z-index: 50;
+            width: auto;
+            padding: 8px 12px;
+            font-size: 13px;
+        }
     </style>
 </head>
 <body>
 
-<div class="sidebar">
-    <h2>Photo AI Search</h2>
+<button id="show-sidebar-btn" onclick="toggleSidebar()">Search ▼</button>
+
+<div class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+        <h2 style="margin:0;">Photo AI Search</h2>
+        <button class="btn-hide-sidebar" onclick="toggleSidebar()">Hide ▲</button>
+    </div>
     
     <div class="form-group">
         <label>Vector Search Keywords (up to 5)</label>
@@ -619,6 +649,14 @@
     function closeZoom() {
         document.getElementById('zoom-modal').style.display = 'none';
         document.getElementById('zoom-img').src = '';
+    }
+
+    function toggleSidebar() {
+        const sidebar = document.getElementById('sidebar');
+        const showBtn = document.getElementById('show-sidebar-btn');
+        const isVisible = sidebar.style.display !== 'none';
+        sidebar.style.display = isVisible ? 'none' : '';
+        showBtn.style.display = isVisible ? 'block' : 'none';
     }
 
     // Close zoom on escape key
