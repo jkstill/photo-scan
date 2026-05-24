@@ -455,13 +455,14 @@
             const val = input.value.toLowerCase();
             autocomplete.innerHTML = '';
             if (!val) { autocomplete.style.display = 'none'; return; }
-            
+
             const matches = allTags.filter(t => t.toLowerCase().includes(val) && !dataArray.includes(t)).slice(0, 10);
             if (matches.length > 0) {
                 matches.forEach(match => {
                     const div = document.createElement('div');
                     div.className = 'autocomplete-item';
                     div.textContent = match;
+                    div.addEventListener('mousedown', (e) => e.preventDefault());
                     div.onclick = () => {
                         if(maxLimit && dataArray.length >= maxLimit) { alert(`Limit ${maxLimit}`); return; }
                         dataArray.push(match);
@@ -476,7 +477,7 @@
                 autocomplete.style.display = 'none';
             }
         });
-        
+
         input.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && input.value.trim()) {
                 e.preventDefault();
@@ -489,6 +490,18 @@
                     renderFn();
                 }
             }
+        });
+
+        input.addEventListener('blur', () => {
+            const t = input.value.trim().toLowerCase();
+            if (t && !dataArray.includes(t)) {
+                if (!(maxLimit && dataArray.length >= maxLimit)) {
+                    dataArray.push(t);
+                    input.value = '';
+                    renderFn();
+                }
+            }
+            autocomplete.style.display = 'none';
         });
     }
 
