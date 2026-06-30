@@ -355,6 +355,25 @@ def ollama_embed(
     raise last_err if last_err else RuntimeError("Unknown embed failure")
 
 
+def fallback_caption(error: Exception) -> str:
+    msg = str(error)[:120]
+    return f"[Caption generation failed: {msg}]"
+
+
+def path_derived_tags(image_path: str) -> List[str]:
+    parts = os.path.normpath(image_path).split(os.sep)
+    dir_parts = parts[:-1][-3:]  # up to 3 nearest parent directories
+    tokens: List[str] = []
+    seen: set = set()
+    for part in dir_parts:
+        for token in re.split(r'[-_\s]+', part):
+            token = token.lower().strip()
+            if len(token) > 1 and not token.isdigit() and token not in seen:
+                seen.add(token)
+                tokens.append(token)
+    return tokens
+
+
 def already_loaded(cur: oracledb.Cursor, sha: str) -> bool:
     cur.execute("select 1 from photo_ai where file_sha256 = :s", {"s": sha})
     return cur.fetchone() is not None
@@ -416,13 +435,18 @@ def main() -> int:
                 if already_loaded(cur, sha):
                     continue
 
-                caption, tags = ollama_generate_caption_tags(
-                    ollama_host=args.ollama_host,
-                    model=args.vision_model,
-                    prompt=prompt,
-                    image_path=full_path,
-                    retries=args.generate_retries,
-                )
+                try:
+                    caption, tags = ollama_generate_caption_tags(
+                        ollama_host=args.ollama_host,
+                        model=args.vision_model,
+                        prompt=prompt,
+                        image_path=full_path,
+                        retries=args.generate_retries,
+                    )
+                except Exception as e:
+                    logger.warning(f"FILE={full_path} caption failed, inserting with fallback: {repr(e)}")
+                    caption = fallback_caption(e)
+                    tags = path_derived_tags(full_path)
 
                 embed_text = caption
                 if tags:
