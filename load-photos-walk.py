@@ -164,7 +164,7 @@ def sha256_file(path: str) -> str:
 
 
 def iter_images(root_dir: str) -> str:
-    exts = {".jpg", ".jpeg", ".png"}
+    exts = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".nef"}
     for dirpath, _, filenames in os.walk(root_dir):
         for fn in filenames:
             ext = os.path.splitext(fn)[1].lower()
@@ -288,6 +288,12 @@ def ollama_generate_caption_tags(
     timeout_sec: int = 240,
     retries: int = 1,
 ) -> Tuple[str, List[str]]:
+    try:
+        with Image.open(image_path) as _img:
+            _img.load()
+    except Exception as e:
+        raise ValueError(f"Image unreadable/corrupt: {e}")
+
     img_b64 = base64.b64encode(open(image_path, "rb").read()).decode("ascii")
     payload = {
         "model": model,
