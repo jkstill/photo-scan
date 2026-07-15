@@ -75,6 +75,7 @@ def search():
                            VECTOR_DISTANCE(embedding, :vec, COSINE) as dist
                     FROM photo_ai
                     WHERE 1=1
+                    AND UPPER(file_path) NOT LIKE '%.NEF'
                 """
                 params = {"vec": vector_array}
                 

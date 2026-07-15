@@ -147,3 +147,37 @@ If a photo violates a rule, the script will automatically invoke Ollama to regen
     --username scott \
     --password tiger
 ```
+
+---
+
+## 6. RAW (NEF) to JPEG Conversion
+
+Web browsers can't display Nikon RAW (`.NEF`) files, and `load-photos-walk.py` needs a JPEG companion to caption, tag, and embed each photo. `nef-to-jpg.py` generates that companion by extracting the full-resolution JPEG preview that's already embedded in every NEF file — no RAW decoding library (e.g. `rawpy`) or external tool (e.g. `exiftool`) required, just `Pillow`.
+
+For each `.NEF` file found, it looks at the embedded preview images stored in the file's `SubIFDs` and pulls out the largest one, writing those JPEG bytes to disk unchanged (no re-encoding, no quality loss).
+
+### Behavior
+- **`DSC_1234.jpg` already exists:** Left alone and reused as the companion image.
+- **`DSC_1234.jpg` does not exist:** Generated from the embedded NEF preview.
+- **`DSC_1234.NEF` is newer than `DSC_1234.jpg`:** Noted in verbose output, but the JPEG is still left alone unless `--force` is given.
+- The generated JPEG's extension matches the case of the NEF's extension (`.NEF` → `.JPG`, `.nef` → `.jpg`). An existing JPEG of either case is honored, so files aren't duplicated.
+
+### Basic Usage
+```bash
+./nef-to-jpg.py /mnt/photos/vacation/
+```
+
+### Options
+- `-n`, `--dry-run`: Show what would be generated/regenerated without writing any files.
+- `--force`: Regenerate the JPEG from the NEF preview even if one already exists.
+- `-v`, `--verbose`: Enable debug-level logging (per-file skip/timestamp notes).
+
+**Example:** Preview what a full rebuild would do before committing to it.
+```bash
+./nef-to-jpg.py --dry-run --force /mnt/photos/vacation/
+```
+*Output Example:*
+```text
+2026-07-15 16:12:32 [INFO] GENERATE: /mnt/photos/vacation/DSC_1514.JPG <- /mnt/photos/vacation/DSC_1514.NEF
+2026-07-15 16:12:32 [INFO] Done. generated=1 regenerated=0 skipped=0 errors=0
+```
