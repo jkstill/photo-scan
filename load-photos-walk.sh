@@ -4,46 +4,25 @@
 # Defaults: imageLimitCount=50, commitEvery=25
 # This script loads photos from /mnt/photos into the database using load-photos-walk.py.
 # a value of 0 for imageLimitCount means no limit (load all photos).
+#
+# to scan all photos in /mnt/photos, use:
+# ./load-photos-walk.sh 0 100
+#
 imageLimitCount=${1:-50}
 commitEvery=${2:-25}
 
 set -u
 
-credsFile='oracle-creds.txt'
-
-[[ -r $credsFile ]] || { echo "$credsFile not readable"; exit 1; }
-
-connection=''
-username=''
-password=''
-ollamaHost=''
-
-getCreds () {
-
-	connection="$(grep '^connection' $credsFile | cut -f2- -d:)"
-	username="$(grep '^username' $credsFile | cut -f2- -d:)"
-	password="$(grep '^password' $credsFile | cut -f2- -d:)"
-	ollamaHost="$(grep '^ollama_server' $credsFile | cut -f2- -d:)"
-
-}
-
-getCreds
-
-cat <<-EOF
-
-username: $username
-password: $password
-connection: $connection
-ollamaHost: $ollamaHost
-
-EOF
-
-[[ -z $username ]] || [[ -z $password ]] || [[ -z $connection ]] || [[ -z $ollamaHost ]] && {
-	echo "$credsFile must contain [connection,username,password]:value"
+[[ -z "$OLLAMA_HOST" ]] || { 
+	echo
+	echo "OLLAMA_HOST is not set. Please set it to the Ollama host (e.g., localhost:11434)"
+	echo "Example: export OLLAMA_HOST=localhost:11434"
+	echo "if ollama is running on the same box, you can use localhost:11434"
+	echo "if ollama is running on a different box, use the IP address of that box"
+	echo "Example: export OLLAMA_HOST=192.168.1.100:11434"
 	echo
 	exit 1
 }
-
 
 scriptDir=$(dirname "$(realpath "$0")")
 cd "$scriptDir" || exit 1
@@ -53,16 +32,14 @@ timestamp=$(date +"%Y%m%d_%H%M%S")
 logFile="$logDir/photo_loader_$timestamp.log"
 #exec > >(tee -a "$logFile") 2>&1
 
-export ORACLE_DSN="$connection"
-export ORACLE_USER="$username"
-export ORACLE_PASS="$password"
-
 # Ollama host (if same box, localhost is fine)
 export OLLAMA_HOST="$ollamaHost"
 
 ./load-photos-walk.py /mnt/photos \
-  --commit-every $commitEvery \
-  --limit $imageLimitCount \
-  --vision-model 'gemma3:12b' \
-  --error-log $logFile
+    --ollama-host $OLLAMA_HOST \
+    --vision-model gemma3:12b \
+    --embed-model mxbai-embed-large \
+    --db photos.db \
+    --commit-every $commitEvery \
+    --limit $imageLimitCount
 
