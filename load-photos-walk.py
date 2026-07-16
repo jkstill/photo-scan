@@ -8,13 +8,16 @@ import json
 import logging
 import os
 import re
+import sqlite3
 import sys
 from array import array
+from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
 import requests
-import oracledb
 from PIL import Image, ExifTags
+
+from vector_search import vector_to_blob
 
 
 FENCE_LINE_RE = re.compile(r"(?m)^\s*```[a-zA-Z]*\s*$")
@@ -281,6 +284,22 @@ def extract_exif(image_path: str) -> Optional[List[Dict[str, str]]]:
         return None
 
 
+def compute_exif_date_original(exif_data: Optional[List[Dict[str, str]]]) -> Optional[str]:
+    """Pull DateTimeOriginal out of extract_exif()'s output as a sortable 'YYYY-MM-DD HH:MM:SS' string."""
+    if not exif_data:
+        return None
+    for item in exif_data:
+        if item.get("tag") == "DateTimeOriginal":
+            val = item.get("val")
+            if not val or val == "0000:00:00 00:00:00":
+                return None
+            try:
+                return datetime.strptime(val, "%Y:%m:%d %H:%M:%S").strftime("%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                return None
+    return None
+
+
 def ollama_generate_caption_tags(
     ollama_host: str,
     model: str,
@@ -375,21 +394,19 @@ def path_derived_tags(image_path: str) -> List[str]:
     return tokens
 
 
-def already_loaded(cur: oracledb.Cursor, sha: str) -> bool:
+def already_loaded(cur: sqlite3.Cursor, sha: str) -> bool:
     cur.execute("select 1 from photo_ai where file_sha256 = :s", {"s": sha})
     return cur.fetchone() is not None
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Walk photos, caption+tag with LLaVA, embed with mxbai, load into Oracle.")
+    ap = argparse.ArgumentParser(description="Walk photos, caption+tag with LLaVA, embed with mxbai, load into SQLite.")
     ap.add_argument("root_dir", help="Root directory to walk")
     ap.add_argument("--ollama-host", default=os.environ.get("OLLAMA_HOST", "http://localhost:11434"))
     ap.add_argument("--vision-model", default=os.environ.get("VISION_MODEL", "llava:7b"))
     ap.add_argument("--embed-model", default=os.environ.get("EMBED_MODEL", "mxbai-embed-large"))
     ap.add_argument("--dims", type=int, default=1024, help="Embedding dimensions. Default 1024 for mxbai-embed-large.")
-    ap.add_argument("--oracle-dsn", default=os.environ.get("ORACLE_DSN", "localhost/FREEPDB1"))
-    ap.add_argument("--oracle-user", default=os.environ.get("ORACLE_USER", "system"))
-    ap.add_argument("--oracle-pass", default=os.environ.get("ORACLE_PASS", ""))
+    ap.add_argument("--db", default=os.environ.get("PHOTO_DB", "photos.db"), help="Path to the SQLite database file.")
     ap.add_argument("--limit", type=int, default=0, help="Stop after inserting N new photos. 0 means no limit.")
     ap.add_argument("--commit-every", type=int, default=25, help="Commit after N inserts.")
     ap.add_argument("--error-log", default="photo_loader_errors.log", help="Error log file path.")
@@ -411,12 +428,13 @@ def main() -> int:
         with open(args.prompt_file, "r", encoding="utf-8") as f:
             prompt = f.read()
 
-    conn = oracledb.connect(user=args.oracle_user, password=args.oracle_pass, dsn=args.oracle_dsn)
+    conn = sqlite3.connect(args.db)
+    conn.execute("PRAGMA journal_mode=WAL")
     cur = conn.cursor()
 
     ins_sql = """
-    insert into photo_ai (file_path, file_sha256, caption, tags_json, embed_model, embedding, exif_json)
-    values (:p, :s, :c, :t, :m, :e, :ex)
+    insert into photo_ai (file_path, file_sha256, caption, tags_json, embed_model, embedding, exif_json, exif_date_original)
+    values (:p, :s, :c, :t, :m, :e, :ex, :d)
     """
 
     inserted = 0
@@ -470,8 +488,9 @@ def main() -> int:
                     "c": caption,
                     "t": json.dumps(tags),
                     "m": args.embed_model,
-                    "e": vec,
+                    "e": vector_to_blob(vec),
                     "ex": exif_json_str,
+                    "d": compute_exif_date_original(exif_data),
                 })
 
                 inserted += 1

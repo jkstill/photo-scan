@@ -1,12 +1,15 @@
-#!/usr/bin/env python3 
+#!/usr/bin/env python3
 
 import argparse
-import os
-import json
 import array
-from flask import Flask, request, jsonify, render_template, send_file
-import oracledb
+import json
+import os
+import sqlite3
+
 import requests
+from flask import Flask, request, jsonify, render_template, send_file
+
+from vector_search import top_n_by_cosine_distance
 
 app = Flask(__name__)
 
@@ -14,8 +17,9 @@ app = Flask(__name__)
 config = {}
 
 def get_db_connection():
-    dsn = f"{config['host']}:{config['port']}/{config['dbname']}"
-    return oracledb.connect(user=config['username'], password=config['password'], dsn=dsn)
+    conn = sqlite3.connect(config['db'])
+    conn.execute("PRAGMA journal_mode=WAL")
+    return conn
 
 @app.route('/')
 def index():
@@ -23,14 +27,16 @@ def index():
 
 @app.route('/api/tags')
 def get_tags():
+    conn = get_db_connection()
     try:
-        with get_db_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT tag FROM photo_tags ORDER BY tag")
-                tags = [row[0] for row in cur.fetchall()]
+        cur = conn.cursor()
+        cur.execute("SELECT tag FROM photo_tags ORDER BY tag")
+        tags = [row[0] for row in cur.fetchall()]
         return jsonify(tags)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    finally:
+        conn.close()
 
 @app.route('/api/search', methods=['POST'])
 def search():
@@ -40,81 +46,81 @@ def search():
     start_date = data.get('start_date')
     end_date = data.get('end_date')
     include_null_date = data.get('include_null_date', True)
-    
+
     # Retrieve limit from frontend, fallback to server default
     try:
         req_limit = int(data.get('limit', config['limit']))
     except ValueError:
         req_limit = config['limit']
-    
+
     if not keywords:
         return jsonify({"error": "At least one keyword is required for vector search"}), 400
-        
+
     search_text = " ".join(keywords)
-    
+
     # Generate Embedding via Ollama
     try:
         r = requests.post(f"{config['ollama_host']}/api/embed", json={"model": config['embed_model'], "input": search_text})
         r.raise_for_status()
-        vector = r.json()["embeddings"][0]
-        vector_array = array.array("f", vector)
+        vector = array.array("f", r.json()["embeddings"][0])
     except Exception as e:
         return jsonify({"error": f"Ollama embedding failed: {str(e)}"}), 500
 
+    conn = get_db_connection()
     try:
-        with get_db_connection() as conn:
-            with conn.cursor() as cur:
-                query = """
-                    SELECT photo_id, file_path, caption, tags_json, exif_json, exif_date_original,
-                           VECTOR_DISTANCE(embedding, :vec, COSINE) as dist, notes
-                    FROM photo_ai
-                    WHERE 1=1
-                    AND UPPER(file_path) NOT LIKE '%.NEF'
-                """
-                params = {"vec": vector_array}
-                
-                # Tag filtering (Exact Match)
-                if filter_tags:
-                    for i, tag in enumerate(filter_tags):
-                        param_name = f"tag_{i}"
-                        query += f" AND json_exists(tags_json, '$?(@ == $T)' PASSING :{param_name} AS \"T\")"
-                        params[param_name] = tag
+        cur = conn.cursor()
+        query = """
+            SELECT photo_id, file_path, caption, tags_json, exif_json, exif_date_original, notes, embedding
+            FROM photo_ai
+            WHERE 1=1
+            AND UPPER(file_path) NOT LIKE '%.NEF'
+        """
+        params = {}
 
-                # Date filtering
-                if start_date and end_date:
-                    date_clause = "(exif_date_original >= to_timestamp(:start_date, 'YYYY-MM-DD HH24:MI:SS') AND exif_date_original <= to_timestamp(:end_date, 'YYYY-MM-DD HH24:MI:SS'))"
-                    params["start_date"] = f"{start_date} 00:00:00"
-                    params["end_date"] = f"{end_date} 23:59:59"
-                    
-                    if include_null_date:
-                        query += f" AND ({date_clause} OR exif_date_original IS NULL)"
-                    else:
-                        query += f" AND {date_clause}"
-                elif not include_null_date:
-                     query += " AND exif_date_original IS NOT NULL"
-                    
-                query += " ORDER BY dist FETCH FIRST :req_limit ROWS ONLY"
-                params["req_limit"] = req_limit
-                
-                cur.execute(query, params)
-                
-                results = []
-                for row in cur.fetchall():
-                    caption_clob = row[2]
-                    caption = caption_clob.read() if caption_clob else ""
-                    results.append({
-                        "photo_id": row[0],
-                        "file_path": row[1],
-                        "caption": caption,
-                        "tags": row[3] if row[3] else [],
-                        "exif": row[4] if row[4] else [],
-                        "date": row[5].strftime("%Y-%m-%d %H:%M:%S") if row[5] else None,
-                        "distance": round(row[6], 4),
-                        "notes": row[7] or ""
-                    })
+        # Tag filtering (Exact Match)
+        if filter_tags:
+            for i, tag in enumerate(filter_tags):
+                param_name = f"tag_{i}"
+                query += f" AND EXISTS (SELECT 1 FROM json_each(tags_json) WHERE json_each.value = :{param_name})"
+                params[param_name] = tag
+
+        # Date filtering (exif_date_original is stored as a sortable 'YYYY-MM-DD HH:MM:SS' string)
+        if start_date and end_date:
+            date_clause = "(exif_date_original >= :start_date AND exif_date_original <= :end_date)"
+            params["start_date"] = f"{start_date} 00:00:00"
+            params["end_date"] = f"{end_date} 23:59:59"
+
+            if include_null_date:
+                query += f" AND ({date_clause} OR exif_date_original IS NULL)"
+            else:
+                query += f" AND {date_clause}"
+        elif not include_null_date:
+             query += " AND exif_date_original IS NOT NULL"
+
+        cur.execute(query, params)
+
+        columns = [c[0] for c in cur.description]
+        candidates = [dict(zip(columns, row)) for row in cur.fetchall()]
+
+        ranked = top_n_by_cosine_distance(vector, candidates, "embedding", req_limit)
+
+        results = []
+        for row in ranked:
+            results.append({
+                "photo_id": row["photo_id"],
+                "file_path": row["file_path"],
+                "caption": row["caption"] or "",
+                "tags": json.loads(row["tags_json"]) if row["tags_json"] else [],
+                "exif": json.loads(row["exif_json"]) if row["exif_json"] else [],
+                "date": row["exif_date_original"],
+                "distance": row["distance"],
+                "notes": row["notes"] or ""
+            })
         return jsonify(results)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    finally:
+        conn.close()
 
 @app.route('/api/notes', methods=['POST'])
 def save_notes():
@@ -127,14 +133,16 @@ def save_notes():
     if len(notes) > 100:
         return jsonify({"error": "notes must be 100 characters or fewer"}), 400
 
+    conn = get_db_connection()
     try:
-        with get_db_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("UPDATE photo_ai SET notes = :n WHERE photo_id = :id", {"n": notes or None, "id": photo_id})
-            conn.commit()
+        cur = conn.cursor()
+        cur.execute("UPDATE photo_ai SET notes = :n WHERE photo_id = :id", {"n": notes or None, "id": photo_id})
+        conn.commit()
         return jsonify({"ok": True, "notes": notes})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    finally:
+        conn.close()
 
 @app.route('/image')
 def get_image():
@@ -145,11 +153,7 @@ def get_image():
 
 def main():
     parser = argparse.ArgumentParser(description="Run the Photo Match Display AI App")
-    parser.add_argument("--host", required=True, help="Oracle DB Host")
-    parser.add_argument("--port", required=True, help="Oracle DB Port")
-    parser.add_argument("--username", required=True, help="Oracle DB Username")
-    parser.add_argument("--password", required=True, help="Oracle DB Password")
-    parser.add_argument("--dbname", required=True, help="Oracle DB Name (Service or SID)")
+    parser.add_argument("--db", default=os.environ.get("PHOTO_DB", "photos.db"), help="Path to the SQLite database file.")
     parser.add_argument("--ollama-host", default=os.environ.get("OLLAMA_HOST", "http://localhost:11434"), help="Ollama Host URL")
     parser.add_argument("--embed-model", default=os.environ.get("EMBED_MODEL", "mxbai-embed-large"), help="Embedding model name")
     parser.add_argument("--web-port", type=int, default=5000, help="Port to run the web server on")
@@ -160,11 +164,7 @@ def main():
     # Assign globals
     global config
     config = {
-        "host": args.host,
-        "port": args.port,
-        "username": args.username,
-        "password": args.password,
-        "dbname": args.dbname,
+        "db": args.db,
         "ollama_host": args.ollama_host,
         "embed_model": args.embed_model,
         "limit": args.limit

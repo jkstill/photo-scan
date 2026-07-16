@@ -1,6 +1,6 @@
 # Photo AI Scanner & Search App
 
-A comprehensive suite of tools to scan local photo directories, automatically generate AI captions and tags using `llava:7b`, embed them into an Oracle 23ai database using `mxbai-embed-large`, and provide both a modern web UI and a command-line interface for lightning-fast semantic vector searches.
+A comprehensive suite of tools to scan local photo directories, automatically generate AI captions and tags using `llava:7b`, embed them into a local SQLite database using `mxbai-embed-large`, and provide both a modern web UI and a command-line interface for semantic vector searches.
 
 Though the default LLM for captions and tags is `llava:7b`, the system is designed to be modular. You can easily swap in any Ollama-compatible model for vision or embedding tasks by changing the command-line parameters.
 
@@ -10,35 +10,35 @@ While `gemma3:12b` is  slower, it does a better job of tagging. Sometimes `llava
 
 ## Prerequisites
 
-- **Python 3.12+**
-- **Oracle Database 23ai** (Must support Vector columns and JSON features)
+- **Python 3.12+** (SQLite support is built into the standard library)
 - **Ollama** running locally or remotely with the following models pulled:
   - `llava:7b` (for image vision, captioning, and tagging)
   - `mxbai-embed-large` (for text embeddings)
 - **Python Packages:**
   ```bash
-  pip install oracledb requests pillow flask
+  pip install requests pillow flask numpy
   ```
 
 ---
 
 ## 1. Database Configuration
 
-Before scanning any photos, you must set up the `photo_ai` table in your Oracle database. The table stores the file paths, JSON tags, EXIF data, and the high-dimensional vectors.
+Before scanning any photos, you must create the SQLite database file and its tables. There's no server to install or credentials to manage — it's a single local file.
 
-Run the provided DDL script via SQL*Plus or SQLcl:
-
-```sql
-sqlplus scott/tiger@server/pdb1.example.com @table-photo-ai.sql
+```bash
+sqlite3 photos.db < table-photo-ai-sqlite.sql
+sqlite3 photos.db < table-photo-tags-sqlite.sql
 ```
 
-*Note: The table includes a highly performant virtual column (`exif_date_original`) that indexes the `DateTimeOriginal` EXIF tag natively for fast date range filtering.*
+*Note: `exif_date_original` is computed once at load time (from the `DateTimeOriginal` EXIF tag) and stored as an indexed column for fast date range filtering, rather than recomputed on every query.*
+
+Every script that touches the database accepts `--db path/to/photos.db` (defaults to `photos.db` in the current directory, or the `PHOTO_DB` environment variable).
 
 ---
 
 ## 2. Scanning and Analyzing Photos
 
-Use `load-photos-walk.py` to recursively scan a directory, extract EXIF data, generate captions/tags via Ollama, and load the vectors into Oracle. 
+Use `load-photos-walk.py` to recursively scan a directory, extract EXIF data, generate captions/tags via Ollama, and load the vectors into SQLite.
 
 ### Basic Usage
 ```bash
@@ -55,12 +55,12 @@ llava:7b is the default vision model, and mxbai-embed-large is the default embed
     --ollama-host http://localhost:11434 \
     --vision-model gemma3:12b \
     --embed-model mxbai-embed-large \
-    --oracle-dsn someserver/pdb1.example.com \
-    --oracle-user scott \
-    --oracle-pass tiger \
+    --db photos.db \
     --commit-every 50 \
     --limit 1000
 ```
+
+*The `photo_tags` lookup table (used by the web UI's tag dropdown) is automatically rebuilt after a run that inserts new photos. Rebuild it manually with `./rebuild-tags.py --db photos.db`, or dump it to text with `--dump`.*
 *Tip: The script writes logs to `photo_loader_errors.log` by default so you can review any failed analyses.*
 
 ---
@@ -70,19 +70,14 @@ llava:7b is the default vision model, and mxbai-embed-large is the default embed
 The `photo-match-display-server` provides a modern, responsive web UI (Flask) for searching your photo collection.
 
 ### Starting the Server
-Start the backend server, specifying your database credentials:
+Start the backend server, pointing it at your database file:
 
-The credendtials are for an Oracle database, and ollama is running on the same machine.
-
-It is not necessary for them to be on the same machine, but is is a little easier to set up if they are. If you want to run ollama on a different machine, just specify the `--ollama-host` parameter with the correct URL when running the photo loading script.
+Ollama does not need to run on the same machine as the app — specify the `--ollama-host` parameter with the correct URL if it's remote.
 
 ```bash
 python3 photo-match-display-server \
-    --host server \
-    --port 1521 \
-    --dbname pdb1.example.com \
-    --username scott \
-    --password tiger \
+    --db photos.db \
+    --ollama-host http://localhost:11434 \
     --web-port 5000 \
     --limit 20
 ```
@@ -91,7 +86,7 @@ python3 photo-match-display-server \
 1. Open your browser to `http://localhost:5000`.
 2. **Vector Search:** Type keywords (e.g., "red car", "dog playing in grass"). The app will query the database based on *semantic meaning*, not just exact word matches.
 3. **Exact Tags:** You can additionally filter by exact tags. The tag input includes an autocomplete feature that dynamically pulls all known tags from your database.
-4. **Date Filtering:** Select a date range. The database utilizes the virtual `exif_date_original` index for near-instant results.
+4. **Date Filtering:** Select a date range. The indexed `exif_date_original` column keeps this fast.
 5. **Interactive UI:** 
    - Click any photo to open a **high-res zoom modal**.
    - Click **"View EXIF Data"** to see detailed camera metrics in a tabular modal.
@@ -112,7 +107,8 @@ Returns up to 100 file paths matching your semantic query:
 ### Advanced Options
 - `-l`, `--limit`: Change the max number of results (default: 100).
 - `-c`, `--show-caption`: Display the AI-generated caption next to the file path.
-- `-d`, `--show-distance`: Display the Oracle cosine similarity score.
+- `-d`, `--show-distance`: Display the cosine similarity score.
+- `--db`: Path to the SQLite database file (default: `photos.db`).
 
 **Example:** Show top 5 matches with captions and scores.
 ```bash
@@ -140,12 +136,7 @@ If a photo violates a rule, the script will automatically invoke Ollama to regen
 
 ### Running Maintenance
 ```bash
-./maintain-photos.py \
-    --host server \
-    --port 1521 \
-    --dbname pdb1.example.com \
-    --username scott \
-    --password tiger
+./maintain-photos.py --db photos.db
 ```
 
 ---
