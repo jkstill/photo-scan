@@ -187,6 +187,17 @@
             font-family: monospace;
         }
         .photo-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px;}
+        .notes-input {
+            width: 100%;
+            padding: 6px 8px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            box-sizing: border-box;
+            font-size: 12px;
+            margin-bottom: 10px;
+            font-family: inherit;
+        }
+        .notes-input:focus { outline: none; border-color: var(--primary); }
         .tag-badge { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 11px; color: #475569; cursor: pointer; }
         .tag-badge:hover { background: #e0e7ff; color: #1e40af; }
         .btn-exif {
@@ -477,6 +488,25 @@
         renderFilterTags();
     }
 
+    async function saveNotes(photoId, notes, inputEl) {
+        try {
+            const res = await fetch('/api/notes', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ photo_id: photoId, notes })
+            });
+            const data = await res.json();
+            if (data.error) {
+                alert('Failed to save note: ' + data.error);
+                return;
+            }
+            inputEl.value = data.notes;
+            inputEl.dataset.saved = data.notes;
+        } catch (e) {
+            alert('Failed to save note: ' + e);
+        }
+    }
+
     // Re-run the search using the existing vector search keywords, replacing
     // any current tag filters with the single tag that was clicked on a result.
     function searchByTag(tag) {
@@ -616,6 +646,7 @@
                     <div class="file-path-display" style="${pathStyle}">${r.file_path}</div>
                     <div class="photo-caption">${r.caption}</div>
                     <div class="photo-tags"></div>
+                    <div class="photo-notes"></div>
                     ${r.exif && r.exif.length > 0 ? `<button class="btn-exif" onclick="showExif(${idx})">View EXIF Data</button>` : '<div style="font-size:12px;color:#94a3b8;">No EXIF</div>'}
                 </div>
             `;
@@ -629,6 +660,22 @@
                 badge.addEventListener('click', () => searchByTag(t));
                 tagsContainer.appendChild(badge);
             });
+
+            const notesInput = document.createElement('input');
+            notesInput.type = 'text';
+            notesInput.className = 'notes-input';
+            notesInput.maxLength = 100;
+            notesInput.placeholder = 'Add a note...';
+            notesInput.value = r.notes || '';
+            notesInput.dataset.saved = r.notes || '';
+            notesInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') { e.preventDefault(); notesInput.blur(); }
+            });
+            notesInput.addEventListener('blur', () => {
+                const val = notesInput.value.trim();
+                if (val !== notesInput.dataset.saved) saveNotes(r.photo_id, val, notesInput);
+            });
+            card.querySelector('.photo-notes').appendChild(notesInput);
 
             container.appendChild(card);
         });

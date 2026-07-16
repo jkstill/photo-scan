@@ -66,7 +66,7 @@ def search():
             with conn.cursor() as cur:
                 query = """
                     SELECT photo_id, file_path, caption, tags_json, exif_json, exif_date_original,
-                           VECTOR_DISTANCE(embedding, :vec, COSINE) as dist
+                           VECTOR_DISTANCE(embedding, :vec, COSINE) as dist, notes
                     FROM photo_ai
                     WHERE 1=1
                     AND UPPER(file_path) NOT LIKE '%.NEF'
@@ -109,9 +109,30 @@ def search():
                         "tags": row[3] if row[3] else [],
                         "exif": row[4] if row[4] else [],
                         "date": row[5].strftime("%Y-%m-%d %H:%M:%S") if row[5] else None,
-                        "distance": round(row[6], 4)
+                        "distance": round(row[6], 4),
+                        "notes": row[7] or ""
                     })
         return jsonify(results)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/notes', methods=['POST'])
+def save_notes():
+    data = request.json
+    photo_id = data.get('photo_id')
+    notes = (data.get('notes') or '').strip()
+
+    if not photo_id:
+        return jsonify({"error": "photo_id is required"}), 400
+    if len(notes) > 100:
+        return jsonify({"error": "notes must be 100 characters or fewer"}), 400
+
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE photo_ai SET notes = :n WHERE photo_id = :id", {"n": notes or None, "id": photo_id})
+            conn.commit()
+        return jsonify({"ok": True, "notes": notes})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
