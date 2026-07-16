@@ -187,7 +187,8 @@
             font-family: monospace;
         }
         .photo-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px;}
-        .tag-badge { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 11px; color: #475569;}
+        .tag-badge { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 11px; color: #475569; cursor: pointer; }
+        .tag-badge:hover { background: #e0e7ff; color: #1e40af; }
         .btn-exif {
             background: transparent;
             color: var(--primary);
@@ -476,6 +477,15 @@
         renderFilterTags();
     }
 
+    // Re-run the search using the existing vector search keywords, replacing
+    // any current tag filters with the single tag that was clicked on a result.
+    function searchByTag(tag) {
+        filterTags.length = 0;
+        filterTags.push(tag);
+        renderFilterTags();
+        performSearch();
+    }
+
     // Rewrite setup functions to use specific renderer
     function setupInput(inputId, autocompleteId, dataArray, maxLimit, renderFn) {
         const input = document.getElementById(inputId);
@@ -594,7 +604,6 @@
             const card = document.createElement('div');
             card.className = 'photo-card';
             
-            const tagHtml = (r.tags || []).map(t => `<span class="tag-badge">${t}</span>`).join('');
             const imgPath = encodeURIComponent(r.file_path);
             const pathStyle = document.getElementById('show-paths').checked ? 'display:block;' : 'display:none;';
             
@@ -606,10 +615,21 @@
                     </div>
                     <div class="file-path-display" style="${pathStyle}">${r.file_path}</div>
                     <div class="photo-caption">${r.caption}</div>
-                    <div class="photo-tags">${tagHtml}</div>
+                    <div class="photo-tags"></div>
                     ${r.exif && r.exif.length > 0 ? `<button class="btn-exif" onclick="showExif(${idx})">View EXIF Data</button>` : '<div style="font-size:12px;color:#94a3b8;">No EXIF</div>'}
                 </div>
             `;
+
+            const tagsContainer = card.querySelector('.photo-tags');
+            (r.tags || []).forEach(t => {
+                const badge = document.createElement('span');
+                badge.className = 'tag-badge';
+                badge.textContent = t;
+                badge.title = `Search by tag: ${t}`;
+                badge.addEventListener('click', () => searchByTag(t));
+                tagsContainer.appendChild(badge);
+            });
+
             container.appendChild(card);
         });
     }
