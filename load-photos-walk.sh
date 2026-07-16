@@ -16,10 +16,10 @@ set -u
 [[ -z "$OLLAMA_HOST" ]] && { 
 cat <<EOF	
 
-OLLAMA_HOST is not set. Please set it to the Ollama host (e.g., localhost:11434)"
-Example: export OLLAMA_HOST=localhost:11434"
+OLLAMA_HOST is not set. Please set it to the Ollama host (e.g., http://localhost:11434)"
+Example: export OLLAMA_HOST=http://localhost:11434"
 
-if ollama is running on the same box, you can use localhost:11434"
+if ollama is running on the same box, you can use http://localhost:11434"
 
 if ollama is running on a different box, use the IP address of that box"
 
