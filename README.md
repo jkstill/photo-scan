@@ -27,6 +27,48 @@ Run `./check-requirements.py` to verify all of the above on this machine (or a n
 
 It checks the Python version, required pip packages, SQLite's JSON1 extension (`json_each`, needed for tag/date filtering), the `sqlite3` CLI, the presence of the app's script/schema files, and that the configured Ollama host is reachable with the vision/embed models pulled. It writes a pass/fail report to `requirements-report.txt` (`--out` to change the path) and exits non-zero if anything is missing. Use `--skip-ollama` to check only the local pieces. `OLLAMA_HOST`/`VISION_MODEL`/`EMBED_MODEL` env vars work the same as elsewhere in the app.
 
+### Python Setup Notes
+
+If only the system python is available, you can set one up in your own account, or the account that is running any of the apps.
+
+Use `uv` to do this fairly simply.
+
+### Get uv
+
+`curl -LsSf https://astral.sh/uv/install.sh | sh`
+
+If your Linux environment is blocking astral.sh, fetch the installation script directly from the raw GitHub codebase:
+
+`curl -LsSf https://githubusercontent.com | sh`
+
+If curl scripts are completely blocked on your network, use the standard system pip tool. Because you lack root privileges, append the --user flag to install it completely inside your local account profile:
+
+```text
+pip install --user uv
+uv python pin 3.12
+```
+
+### Initialize The uv Project
+
+```
+cd ~/photo-scan
+uv init
+```
+
+### Add Dependencies
+
+```text
+uv add requests fastapi uvicorn numpy
+```
+
+### Running with python
+
+Modify shell scripts or command as needed to run with uv:
+
+```text
+uv run python ./load-photos-walk.py
+```
+
 ---
 
 ## 1. Database Configuration
