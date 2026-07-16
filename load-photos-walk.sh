@@ -13,14 +13,28 @@ commitEvery=${2:-25}
 
 set -u
 
-[[ -z "$OLLAMA_HOST" ]] || { 
-	echo
-	echo "OLLAMA_HOST is not set. Please set it to the Ollama host (e.g., localhost:11434)"
-	echo "Example: export OLLAMA_HOST=localhost:11434"
-	echo "if ollama is running on the same box, you can use localhost:11434"
-	echo "if ollama is running on a different box, use the IP address of that box"
-	echo "Example: export OLLAMA_HOST=192.168.1.100:11434"
-	echo
+[[ -z "$OLLAMA_HOST" ]] && { 
+cat <<EOF	
+
+OLLAMA_HOST is not set. Please set it to the Ollama host (e.g., localhost:11434)"
+Example: export OLLAMA_HOST=localhost:11434"
+
+if ollama is running on the same box, you can use localhost:11434"
+
+if ollama is running on a different box, use the IP address of that box"
+
+Example: export OLLAMA_HOST=http://192.168.1.100:11434"
+
+Test it with curl:
+
+$  curl -s $OLLAMA_HOST/api/tags | grep -Eo gemma3
+gemma3
+gemma3
+gemma3
+gemma3
+	
+EOF
+
 	exit 1
 }
 
@@ -31,9 +45,6 @@ mkdir -p "$logDir"
 timestamp=$(date +"%Y%m%d_%H%M%S")
 logFile="$logDir/photo_loader_$timestamp.log"
 #exec > >(tee -a "$logFile") 2>&1
-
-# Ollama host (if same box, localhost is fine)
-export OLLAMA_HOST="$ollamaHost"
 
 ./load-photos-walk.py /mnt/photos \
     --ollama-host $OLLAMA_HOST \
