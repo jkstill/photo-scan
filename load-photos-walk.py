@@ -3,6 +3,7 @@
 import argparse
 import base64
 import hashlib
+import importlib.util
 import json
 import logging
 import os
@@ -488,6 +489,17 @@ def main() -> int:
 
         conn.commit()
         logger.info(f"Done. inserted={inserted} scanned_files={seen_files}")
+
+        if inserted > 0:
+            try:
+                script_dir = os.path.dirname(os.path.abspath(__file__))
+                spec = importlib.util.spec_from_file_location("rebuild_tags", os.path.join(script_dir, "rebuild-tags.py"))
+                rebuild_tags_mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(rebuild_tags_mod)
+                tag_count = rebuild_tags_mod.rebuild_tags(conn)
+                logger.info(f"Rebuilt photo_tags table: {tag_count} tags.")
+            except Exception as e:
+                logger.warning(f"Failed to rebuild photo_tags: {repr(e)}")
 
     finally:
         try:
