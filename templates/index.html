@@ -487,66 +487,66 @@
     }
 
     // Rewrite setup functions to use specific renderer
-    function setupInput(inputId, autocompleteId, dataArray, maxLimit, renderFn) {
+    function setupInput(inputId, autocompleteId, dataArray, maxLimit, renderFn, showAllOnFocus = false) {
         const input = document.getElementById(inputId);
         const autocomplete = document.getElementById(autocompleteId);
 
+        function selectTag(tag) {
+            if (maxLimit && dataArray.length >= maxLimit) { alert(`Limit ${maxLimit}`); return; }
+            dataArray.push(tag);
+            input.value = '';
+            autocomplete.style.display = 'none';
+            renderFn();
+        }
+
+        function showMatches(matches) {
+            autocomplete.innerHTML = '';
+            if (matches.length === 0) { autocomplete.style.display = 'none'; return; }
+            matches.forEach(match => {
+                const div = document.createElement('div');
+                div.className = 'autocomplete-item';
+                div.textContent = match;
+                div.addEventListener('mousedown', (e) => e.preventDefault());
+                div.onclick = () => selectTag(match);
+                autocomplete.appendChild(div);
+            });
+            autocomplete.style.display = 'block';
+        }
+
         input.addEventListener('input', () => {
             const val = input.value.toLowerCase();
-            autocomplete.innerHTML = '';
             if (!val) { autocomplete.style.display = 'none'; return; }
-
-            const matches = allTags.filter(t => t.toLowerCase().includes(val) && !dataArray.includes(t)).slice(0, 10);
-            if (matches.length > 0) {
-                matches.forEach(match => {
-                    const div = document.createElement('div');
-                    div.className = 'autocomplete-item';
-                    div.textContent = match;
-                    div.addEventListener('mousedown', (e) => e.preventDefault());
-                    div.onclick = () => {
-                        if(maxLimit && dataArray.length >= maxLimit) { alert(`Limit ${maxLimit}`); return; }
-                        dataArray.push(match);
-                        input.value = '';
-                        autocomplete.style.display = 'none';
-                        renderFn();
-                    };
-                    autocomplete.appendChild(div);
-                });
-                autocomplete.style.display = 'block';
-            } else {
-                autocomplete.style.display = 'none';
-            }
+            showMatches(allTags.filter(t => t.toLowerCase().includes(val) && !dataArray.includes(t)).slice(0, 10));
         });
+
+        // Clicking/focusing an empty "browse all" input shows the full tag list (dropdown behavior),
+        // rather than requiring the user to type before seeing any suggestions.
+        if (showAllOnFocus) {
+            input.addEventListener('focus', () => {
+                if (input.value.trim()) return;
+                showMatches(allTags.filter(t => !dataArray.includes(t)));
+            });
+        }
 
         input.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && input.value.trim()) {
                 e.preventDefault();
                 const t = input.value.trim().toLowerCase();
-                if(!dataArray.includes(t)) {
-                    if(maxLimit && dataArray.length >= maxLimit) { alert(`Limit ${maxLimit}`); return; }
-                    dataArray.push(t);
-                    input.value = '';
-                    autocomplete.style.display = 'none';
-                    renderFn();
-                }
+                if (!dataArray.includes(t)) selectTag(t);
             }
         });
 
         input.addEventListener('blur', () => {
             const t = input.value.trim().toLowerCase();
-            if (t && !dataArray.includes(t)) {
-                if (!(maxLimit && dataArray.length >= maxLimit)) {
-                    dataArray.push(t);
-                    input.value = '';
-                    renderFn();
-                }
+            if (t && !dataArray.includes(t) && !(maxLimit && dataArray.length >= maxLimit)) {
+                selectTag(t);
             }
             autocomplete.style.display = 'none';
         });
     }
 
     setupInput('keyword-input', 'keyword-autocomplete', keywords, 5, renderKwTags);
-    setupInput('filter-input', 'filter-autocomplete', filterTags, 0, renderFilterTags);
+    setupInput('filter-input', 'filter-autocomplete', filterTags, 0, renderFilterTags, true);
 
 
     async function performSearch() {

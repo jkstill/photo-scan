@@ -26,13 +26,7 @@ def get_tags():
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
-                # Retrieve all unique tags for autocomplete
-                cur.execute("""
-                    select distinct jt.tag
-                    from photo_ai p, json_table(p.tags_json, '$[*]' columns (tag varchar2(100) path '$')) jt
-                    where jt.tag is not null 
-                    order by 1
-                """)
+                cur.execute("SELECT tag FROM photo_tags ORDER BY tag")
                 tags = [row[0] for row in cur.fetchall()]
         return jsonify(tags)
     except Exception as e:
