@@ -9,7 +9,7 @@ import re
 import sqlite3
 import sys
 
-from vector_search import vector_to_blob
+from vector_search import normalize_ollama_host, vector_to_blob
 
 def setup_logging():
     logger = logging.getLogger("db_cleanup")
@@ -36,6 +36,7 @@ def main():
     parser.add_argument("--embed-model", default=os.environ.get("EMBED_MODEL", "mxbai-embed-large"), help="Embedding model name")
     parser.add_argument("--dims", type=int, default=1024, help="Embedding dimensions")
     args = parser.parse_args()
+    args.ollama_host = normalize_ollama_host(args.ollama_host)
 
     logger = setup_logging()
 

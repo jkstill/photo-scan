@@ -17,7 +17,7 @@ from typing import Dict, List, Optional, Tuple
 import requests
 from PIL import Image, ExifTags
 
-from vector_search import vector_to_blob
+from vector_search import normalize_ollama_host, vector_to_blob
 
 
 FENCE_LINE_RE = re.compile(r"(?m)^\s*```[a-zA-Z]*\s*$")
@@ -414,6 +414,7 @@ def main() -> int:
     ap.add_argument("--generate-retries", type=int, default=1, help="Retries for vision calls.")
     ap.add_argument("--embed-retries", type=int, default=1, help="Retries for embedding calls.")
     args = ap.parse_args()
+    args.ollama_host = normalize_ollama_host(args.ollama_host)
 
     root_dir = os.path.abspath(args.root_dir)
     if not os.path.isdir(root_dir):

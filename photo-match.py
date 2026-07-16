@@ -6,7 +6,7 @@ import sys
 import sqlite3
 import requests
 
-from vector_search import top_n_by_cosine_distance
+from vector_search import normalize_ollama_host, top_n_by_cosine_distance
 
 def main():
     parser = argparse.ArgumentParser(description="CLI Photo Vector Search")
@@ -23,6 +23,7 @@ def main():
     parser.add_argument("--embed-model", default=os.environ.get("EMBED_MODEL", "mxbai-embed-large"), help="Embedding model name")
 
     args = parser.parse_args()
+    args.ollama_host = normalize_ollama_host(args.ollama_host)
 
     search_text = " ".join(args.keywords)
 

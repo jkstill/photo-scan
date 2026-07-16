@@ -13,6 +13,14 @@ def vector_to_blob(vec) -> bytes:
     return array("f", vec).tobytes()
 
 
+def normalize_ollama_host(host: str) -> str:
+    """Ollama's own OLLAMA_HOST env var format omits the scheme (e.g. 'localhost:11434');
+    requests needs one, so add http:// if the caller didn't supply http(s)://."""
+    if not host.startswith("http://") and not host.startswith("https://"):
+        return "http://" + host
+    return host
+
+
 def top_n_by_cosine_distance(query_vec, rows, embedding_key: str, n: int):
     """
     rows: list of dicts, each containing an `embedding_key` entry with the raw BLOB.

@@ -9,7 +9,7 @@ import sqlite3
 import requests
 from flask import Flask, request, jsonify, render_template, send_file
 
-from vector_search import top_n_by_cosine_distance
+from vector_search import normalize_ollama_host, top_n_by_cosine_distance
 
 app = Flask(__name__)
 
@@ -160,6 +160,7 @@ def main():
     parser.add_argument("--limit", type=int, default=10, help="Default number of photos to return (max 100)")
 
     args = parser.parse_args()
+    args.ollama_host = normalize_ollama_host(args.ollama_host)
 
     # Assign globals
     global config

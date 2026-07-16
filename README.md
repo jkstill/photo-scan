@@ -19,6 +19,14 @@ While `gemma3:12b` is  slower, it does a better job of tagging. Sometimes `llava
   pip install requests pillow flask numpy
   ```
 
+Run `./check-requirements.py` to verify all of the above on this machine (or a new install) before going further:
+
+```bash
+./check-requirements.py --ollama-host http://localhost:11434 --vision-model llava:7b --embed-model mxbai-embed-large
+```
+
+It checks the Python version, required pip packages, SQLite's JSON1 extension (`json_each`, needed for tag/date filtering), the `sqlite3` CLI, the presence of the app's script/schema files, and that the configured Ollama host is reachable with the vision/embed models pulled. It writes a pass/fail report to `requirements-report.txt` (`--out` to change the path) and exits non-zero if anything is missing. Use `--skip-ollama` to check only the local pieces. `OLLAMA_HOST`/`VISION_MODEL`/`EMBED_MODEL` env vars work the same as elsewhere in the app.
+
 ---
 
 ## 1. Database Configuration
