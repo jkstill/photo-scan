@@ -1,0 +1,14 @@
+[Unit]
+Description= Photo Match Display Server
+After=network.target
+#StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=10
+User=jkstill
+ExecStart=/opt/photo-server/photo-match-display-server.sh
+
+[Install]
+WantedBy=multi-user.target

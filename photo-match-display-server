@@ -1,5 +1,17 @@
 #!/usr/bin/env python3
 
+# use the following insteady of '#!/usr/bin/env python3' if you want to run this script with uv.
+
+#!/usr/bin/env -S uv run --quiet  --script
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "requests",
+#     "flask",
+#     "numpy",
+# ]
+# ///
+
 import argparse
 import array
 import json

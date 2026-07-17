@@ -224,3 +224,50 @@ For each `.NEF` file found, it looks at the embedded preview images stored in th
 2026-07-15 16:12:32 [INFO] GENERATE: /mnt/photos/vacation/DSC_1514.JPG <- /mnt/photos/vacation/DSC_1514.NEF
 2026-07-15 16:12:32 [INFO] Done. generated=1 regenerated=0 skipped=0 errors=0
 ```
+
+## 7. Run via systemd (Linux)
+
+To run via systemd, you can use the provided `photo-match-display-server.service` unit file. Copy it to `/etc/systemd/system/`.
+
+Then clone the git repo to /opt/photo-scan. If you have already scanned your photos and have a database, copy the database to this location as well.
+
+If you are using uv to manage your python environment, then modify the `photo-match-display-server` python script as shown in the top of the file.
+
+For reference, it looks like this:
+
+```python
+#!/usr/bin/env python3
+
+# use the following insteady of '#!/usr/bin/env python3' if you want to run this script with uv.
+
+#!/usr/bin/env -S uv run --quiet  --script
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "requests",
+#     "flask",
+#     "numpy",
+# ]
+# ///
+``
+
+In this case the lines above the `#!/usr/bin/env -S uv run --quiet  --script` line should be removed so that it is the first line in the file.
+
+Then copy the `photo-match-display-server.service` file to `/etc/systemd/system/`.
+
+Like so:
+
+```bash
+sudo cp photo-match-display-server.service /etc/systemd/system/
+```
+
+Then enable and start the service:
+
+```bash
+sudo systemctl enable photo-match-display-server.service
+sudo systemctl start photo-match-display-server.service
+```
+
+
+
+
