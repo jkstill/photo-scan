@@ -28,8 +28,8 @@ REQUIRED_PACKAGES = [
     ("numpy", "numpy"),
 ]
 REQUIRED_FILES = [
-    "table-photo-ai-sqlite.sql",
-    "table-photo-tags-sqlite.sql",
+    "sql/table-photo-ai-sqlite.sql",
+    "sql/table-photo-tags-sqlite.sql",
     "vector_search.py",
     "load-photos-walk.py",
     "photo-match-display-server",

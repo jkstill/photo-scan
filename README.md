@@ -78,8 +78,8 @@ uv run python ./load-photos-walk.py
 Before scanning any photos, you must create the SQLite database file and its tables. There's no server to install or credentials to manage — it's a single local file.
 
 ```bash
-sqlite3 photos.db < table-photo-ai-sqlite.sql
-sqlite3 photos.db < table-photo-tags-sqlite.sql
+sqlite3 photos.db < sql/table-photo-ai-sqlite.sql
+sqlite3 photos.db < sql/table-photo-tags-sqlite.sql
 ```
 
 *Note: `exif_date_original` is computed once at load time (from the `DateTimeOriginal` EXIF tag) and stored as an indexed column for fast date range filtering, rather than recomputed on every query.*
