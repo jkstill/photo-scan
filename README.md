@@ -57,8 +57,10 @@ uv init
 
 ### Add Dependencies
 
+This app is Flask-based (not FastAPI), and `vector_search.py` is a local module in this repo, not a PyPI package — don't `uv add` it, `uv run` picks it up from the working directory automatically.
+
 ```text
-uv add requests fastapi uvicorn numpy
+uv add requests pillow flask numpy
 ```
 
 ### Running with python
