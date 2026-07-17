@@ -227,47 +227,99 @@ For each `.NEF` file found, it looks at the embedded preview images stored in th
 
 ## 7. Run via systemd (Linux)
 
-To run via systemd, you can use the provided `photo-match-display-server.service` unit file. Copy it to `/etc/systemd/system/`.
+To run via systemd, you can use the provided `systemd/photo-match-display-server.service` unit file. Copy it to `/etc/systemd/system/`.
 
-Then clone the git repo to /opt/photo-scan. If you have already scanned your photos and have a database, copy the database to this location as well.
+Many commands here can be run via `sudo`.
 
-If you are using uv to manage your python environment, then modify the `photo-match-display-server` python script as shown in the top of the file.
+Some may not.  uv for instance may not do what you want when run with sudo.
 
-For reference, it looks like this:
-
-```python
-#!/usr/bin/env python3
-
-# use the following insteady of '#!/usr/bin/env python3' if you want to run this script with uv.
-
-#!/usr/bin/env -S uv run --quiet  --script
-# /// script
-# requires-python = ">=3.12"
-# dependencies = [
-#     "requests",
-#     "flask",
-#     "numpy",
-# ]
-# ///
-``
-
-In this case the lines above the `#!/usr/bin/env -S uv run --quiet  --script` line should be removed so that it is the first line in the file.
-
-Then copy the `photo-match-display-server.service` file to `/etc/systemd/system/`.
-
-Like so:
+### Install system uv
 
 ```bash
-sudo cp photo-match-display-server.service /etc/systemd/system/
+curl -LsSf https://astral.sh/uv/install.sh |
+    sudo env UV_UNMANAGED_INSTALL=/usr/local/bin sh
 ```
 
-Then enable and start the service:
+### Create a system user 'photo-server' for the photo server
 
 ```bash
-sudo systemctl enable photo-match-display-server.service
-sudo systemctl start photo-match-display-server.service
+useradd \
+    --system \
+    --home-dir /var/lib/photo-server \
+    --create-home \
+    --shell /usr/sbin/nologin \
+    photo-server
+```
+
+### Create directories for the photo server
+
+```bash
+install -d -o root         -g root         -m 0755 /opt/photo-server
+install -d -o photo-server -g photo-server -m 0750 /var/lib/photo-server
+install -d -o photo-server -g photo-server -m 0750 /var/cache/photo-server
+```
+
+### Get the app
+
+As root:
+
+```bash
+cd /opt/photo-server
+git clone -b sqlite-backend https://github.com/jkstill/photo-scan.git .
+```
+
+Note: the branch will not be needed if  sqlite is merged to main
+
+### Create System Wide uv Managed Python
+
+```bash
+install -d -o root -g root -m 0755 /opt/uv
+install -d -o root -g root -m 0755 /opt/uv/python
+install -d -o root -g root -m 0755 /var/cache/uv
+
+UV_PYTHON_INSTALL_DIR=/opt/uv/python  UV_CACHE_DIR=/var/cache/uv  /usr/local/bin/uv python install 3.12
 ```
 
 
+### Setup Python Dependencies
+
+```bash
+cd /opt/photo-server
+
+UV_PYTHON_INSTALL_DIR=/opt/uv/python \
+UV_CACHE_DIR=/var/cache/uv \
+/usr/local/bin/uv sync \
+    --python 3.12 \
+    --frozen \
+    --no-dev \
+    --compile-bytecode
+
+uv add requests pillow flask numpy
+```
+
+### Set Permissions
+
+```bash
+chown -R root:root /opt/photo-server
+chmod -R go-w /opt/photo-server
+```
+
+If the sqlite database `photos.db` has already been created, copy it to /var/lib/photo-server/ and make sure it is owned by photo-server:photo-server
+
+If not, follow the steps shown earlier for creating and populating the database, and then copy it to /var/lib/photo-server/ and make sure it is owned by photo-server:photo-server
+
+Before trying to run the service you can test the commands manually:
+
+```bash
+sudo -u photo-server /opt/photo-server/.venv/bin/python /opt/photo-server/photo-match-display-server --db /var/lib/photo-server/photos.db --limit 25 --web-port 8100
+```
+
+While it is running point your browser to `server:8100', enter a keyword, press 'Submit'  and see if you get results.
+
+If that worked, then use CTL-C to stop the app, and start the service
+
+`systemctl start photo-match-display-server.service`
+
+The app should now be working at `server:8100`
 
 

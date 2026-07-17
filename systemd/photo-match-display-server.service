@@ -1,14 +1,50 @@
+# /etc/systemd/system/photo-match-display-server.service
+
 [Unit]
-Description= Photo Match Display Server
-After=network.target
-#StartLimitIntervalSec=0
+Description=Photo Server
+Wants=network-online.target
+After=network-online.target
+RequiresMountsFor=/mnt/photos
 
 [Service]
 Type=simple
-Restart=always
-RestartSec=10
-User=jkstill
-ExecStart=/opt/photo-server/photo-match-display-server.sh
+
+User=photo-server
+Group=photo-server
+
+WorkingDirectory=/opt/photo-server
+ExecStart=/opt/photo-server/.venv/bin/python /opt/photo-server/photo-match-display-server --db /var/lib/photo-server/photos.db --limit 25 --web-port 8100
+
+Environment=PYTHONUNBUFFERED=1
+Environment=HOME=/var/lib/photo-server
+Environment=UV_CACHE_DIR=/var/cache/photo-server
+
+# Optional application configuration
+EnvironmentFile=-/etc/photo-server/photo-server.env
+
+Restart=on-failure
+RestartSec=5
+
+# Files created by the application default to owner-only/group-readable.
+UMask=0027
+
+# Writable application locations
+StateDirectory=photo-server
+CacheDirectory=photo-server
+
+# Basic hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+# Add locations here only when the application must write to them.
+ReadWritePaths=/var/lib/photo-server
+ReadWritePaths=/var/cache/photo-server
 
 [Install]
 WantedBy=multi-user.target
+
