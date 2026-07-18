@@ -68,7 +68,7 @@ uv add requests pillow flask numpy
 Modify shell scripts or command as needed to run with uv:
 
 ```text
-uv run python ./load-photos-walk.py
+uv run python ./load-photos-walk.py --help
 ```
 
 ---
@@ -107,7 +107,7 @@ llava:7b is the default vision model, and mxbai-embed-large is the default embed
     --ollama-host http://localhost:11434 \
     --vision-model gemma3:12b \
     --embed-model mxbai-embed-large \
-    --db photos.db \
+    --db /var/lib/photo-server/photos.db \
     --commit-every 50 \
     --limit 1000
 ```
