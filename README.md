@@ -229,9 +229,11 @@ For each `.NEF` file found, it looks at the embedded preview images stored in th
 
 To run via systemd, you can use the provided `systemd/photo-match-display-server.service` unit file. Copy it to `/etc/systemd/system/`.
 
-Many commands here can be run via `sudo`.
+Edit the `ExecStart` line to point to the correct paths for your environment, including the Ollama host and database file.
 
-Some may not.  uv for instance may not do what you want when run with sudo.
+Many of the following commands can be run via `sudo`.
+
+Some may need to be run as root.  uv for instance may not do what you want when run with sudo.
 
 ### Install system uv
 
@@ -278,6 +280,8 @@ install -d -o root -g root -m 0755 /opt/uv/python
 install -d -o root -g root -m 0755 /var/cache/uv
 
 UV_PYTHON_INSTALL_DIR=/opt/uv/python  UV_CACHE_DIR=/var/cache/uv  /usr/local/bin/uv python install 3.12
+
+uv python pin 3.12
 ```
 
 
@@ -285,6 +289,10 @@ UV_PYTHON_INSTALL_DIR=/opt/uv/python  UV_CACHE_DIR=/var/cache/uv  /usr/local/bin
 
 ```bash
 cd /opt/photo-server
+
+uv init
+
+uv lock
 
 UV_PYTHON_INSTALL_DIR=/opt/uv/python \
 UV_CACHE_DIR=/var/cache/uv \
@@ -311,15 +319,25 @@ If not, follow the steps shown earlier for creating and populating the database,
 Before trying to run the service you can test the commands manually:
 
 ```bash
-sudo -u photo-server /opt/photo-server/.venv/bin/python /opt/photo-server/photo-match-display-server --db /var/lib/photo-server/photos.db --limit 25 --web-port 8100
+sudo -u photo-server /opt/photo-server/.venv/bin/python /opt/photo-server/photo-match-display-server \
+  --ollama-host http://your-ollama-host.jks.com:11434 \
+  --db /var/lib/photo-server/photos.db \
+  --limit 25 --web-port 8100
 ```
-
 While it is running point your browser to `server:8100', enter a keyword, press 'Submit'  and see if you get results.
 
 If that worked, then use CTL-C to stop the app, and start the service
 
+### Enable Service and Start
+
+```bash
+systemctl enable photo-match-display-server.service
+systemctl start photo-match-display-server.service
+systemctl status photo-match-display-server.service
+journalctl -u photo-match-display-server.service -f
+```
+
 `systemctl start photo-match-display-server.service`
 
 The app should now be working at `server:8100`
-
 
