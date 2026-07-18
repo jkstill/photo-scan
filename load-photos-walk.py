@@ -105,6 +105,17 @@ def normalize_tags(text: str, *, lowercase: bool = False) -> List[str]:
     out: List[str] = []
     seen = set()
 
+    def add_tag(tag: str) -> None:
+        if not tag:
+            return
+        if lowercase:
+            tag = tag.lower()
+        key = tag if lowercase else tag.lower()
+        if key in seen:
+            return
+        seen.add(key)
+        out.append(tag)
+
     for t in candidates:
         if t is None:
             continue
@@ -130,15 +141,17 @@ def normalize_tags(text: str, *, lowercase: bool = False) -> List[str]:
         if not t:
             continue
 
-        if lowercase:
-            t = t.lower()
-
-        # De-dupe (case-insensitive de-dupe if lowercase=True, else exact)
-        key = t if lowercase else t.lower()
-        if key in seen:
+        # A single "tag" with 4+ words is almost certainly the model dumping
+        # its whole tag list into one JSON string element instead of one
+        # element per tag (the JSON fast path above trusts each element as
+        # already-split). Explode it on whitespace rather than keep it whole.
+        words = t.split(' ')
+        if len(words) > 3:
+            for w in words:
+                add_tag(w)
             continue
-        seen.add(key)
-        out.append(t)
+
+        add_tag(t)
 
     return out
 

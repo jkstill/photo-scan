@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """
-One-time cleanup for tags that were joined with a literal backslash instead
-of a tab by the vision model (see the normalize_tags() delimiter fix in
-load-photos-walk.py). Re-splits affected tags_json entries in place using
-the same splitting logic, without calling Ollama again.
+One-time cleanup for tags the vision model jammed together instead of
+splitting: joined with a literal backslash instead of a tab, or dumped as
+one long space-separated JSON string element instead of one element per tag
+(see the normalize_tags() fixes in load-photos-walk.py). Re-splits affected
+tags_json entries in place using the same splitting logic, without calling
+Ollama again.
 """
 
 import argparse
@@ -31,10 +33,15 @@ def main() -> int:
     script_dir = os.path.dirname(os.path.abspath(__file__))
     loader = load_sibling(script_dir, "load-photos-walk.py", "loader")
 
+    def needs_split(t) -> bool:
+        if not isinstance(t, str):
+            return False
+        return "\\" in t or len(t.split(' ')) > 3
+
     conn = sqlite3.connect(args.db)
     cur = conn.cursor()
 
-    cur.execute("SELECT photo_id, tags_json FROM photo_ai WHERE tags_json LIKE '%\\%'")
+    cur.execute("SELECT photo_id, tags_json FROM photo_ai")
     rows = cur.fetchall()
 
     fixed = 0
@@ -44,13 +51,13 @@ def main() -> int:
         except Exception:
             continue
 
-        if not any(isinstance(t, str) and "\\" in t for t in tags):
+        if not any(needs_split(t) for t in tags):
             continue
 
         new_tags = []
         seen = set()
         for t in tags:
-            if isinstance(t, str) and "\\" in t:
+            if needs_split(t):
                 pieces = loader.normalize_tags(t, lowercase=True)
             else:
                 pieces = [t] if isinstance(t, str) else []
