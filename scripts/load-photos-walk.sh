@@ -39,8 +39,9 @@ EOF
 }
 
 scriptDir=$(dirname "$(realpath "$0")")
-cd "$scriptDir" || exit 1
-logDir="$scriptDir/logs"
+appDir=$(dirname "$scriptDir")
+cd "$appDir" || exit 1
+logDir="$appDir/logs"
 mkdir -p "$logDir"
 timestamp=$(date +"%Y%m%d_%H%M%S")
 logFile="$logDir/photo_loader_$timestamp.log"
