@@ -85,13 +85,18 @@ def normalize_tags(text: str, *, lowercase: bool = False) -> List[str]:
         candidates = None
 
     if candidates is None:
+        # Convert literal two-char escape sequences ("\n", "\t") to a space first,
+        # so a genuine escape isn't mistaken for the bare-backslash separator below.
+        s2 = s.replace("\\n", " ").replace("\\t", " ")
+
         # Normalize common separators to newline, then split
-        # Keep commas/semicolons/pipes/tabs as primary delimiters.
-        s2 = re.sub(r'[,\t;|]+', '\n', s)
+        # Keep commas/semicolons/pipes/tabs/backslashes as primary delimiters.
+        # (gemma3:12b occasionally separates tags with a literal backslash instead of a tab)
+        s2 = re.sub(r'[,\t;|\\]+', '\n', s2)
 
         # If we didn't actually introduce any splits, fall back to whitespace splitting.
         if '\n' not in s2:
-            parts = re.split(r'\s+', s)
+            parts = re.split(r'\s+', s2)
         else:
             parts = [p for p in s2.splitlines()]
 
