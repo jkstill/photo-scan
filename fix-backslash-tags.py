@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """
-One-time cleanup for tags the vision model jammed together instead of
-splitting: joined with a literal backslash instead of a tab, or dumped as
-one long space-separated JSON string element instead of one element per tag
-(see the normalize_tags() fixes in load-photos-walk.py). Re-splits affected
-tags_json entries in place using the same splitting logic, without calling
-Ollama again.
+One-time cleanup for tags the vision model garbled instead of emitting
+cleanly: joined with a literal backslash/plus instead of a tab, dumped as
+one long space-separated JSON string element instead of one element per
+tag, glued together with no delimiter at all, or carrying stray HTML
+tags/entities and non-ASCII noise (unicode format artifacts, CJK/Cyrillic
+glyphs, homoglyphs, accents) mixed into an otherwise-English tag (see
+normalize_tags()/sanitize_tag()/segment_glued_tag() in load-photos-walk.py).
+Re-splits/re-cleans affected tags_json entries in place using that same
+logic, without calling Ollama again.
 """
 
 import argparse
@@ -36,10 +39,22 @@ def main() -> int:
     def needs_split(t) -> bool:
         if not isinstance(t, str):
             return False
-        return "\\" in t or len(t.split(' ')) > 3
+        return "\\" in t or "+" in t or len(t.split(' ')) > 3
+
+    def looks_glued(t: str) -> bool:
+        return (
+            isinstance(t, str)
+            and ' ' not in t
+            and len(t) > loader.GLUED_TAG_MAX_WORD_LEN
+        )
 
     conn = sqlite3.connect(args.db)
     cur = conn.cursor()
+
+    # Built once, up front, from the current photo_tags vocabulary - not
+    # rebuilt mid-run, so later fixes in this same pass can't feed back into
+    # earlier segmentation decisions.
+    dictionary, total = loader.build_tag_dictionary(conn)
 
     cur.execute("SELECT photo_id, tags_json FROM photo_ai")
     rows = cur.fetchall()
@@ -51,18 +66,25 @@ def main() -> int:
         except Exception:
             continue
 
-        if not any(needs_split(t) for t in tags):
-            continue
-
         new_tags = []
         seen = set()
         for t in tags:
+            if not isinstance(t, str):
+                continue
             if needs_split(t):
                 pieces = loader.normalize_tags(t, lowercase=True)
+            elif looks_glued(t):
+                segmented = loader.segment_glued_tag(t.lower(), dictionary, total)
+                if segmented:
+                    pieces = segmented
+                else:
+                    s = loader.sanitize_tag(t).lower()
+                    pieces = [s] if s else []
             else:
-                pieces = [t] if isinstance(t, str) else []
+                s = loader.sanitize_tag(t).lower()
+                pieces = [s] if s else []
             for p in pieces:
-                if p not in seen:
+                if p and p not in seen:
                     seen.add(p)
                     new_tags.append(p)
 

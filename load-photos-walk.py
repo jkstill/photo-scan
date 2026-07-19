@@ -35,9 +35,124 @@ DEFAULT_PROMPT = (
 
 import re
 import json
-from typing import List
+import math
+import unicodedata
+from typing import List, Optional
 
 _PREFIX_RE = re.compile(r'(?i)^\s*(line\s*\d+\s*:\s*)?(tags?\s*:\s*)+')
+# '&' is kept (not stripped/split-on): it's ambiguous between a join
+# artifact ("pratt&whitney") and a legitimate token ("at&t", "b&w"), and
+# guessing wrong on the split case is worse than leaving it alone.
+_TAG_WHITELIST_RE = re.compile(r"[^a-zA-Z0-9 '\-&]")
+_HTML_TAG_RE = re.compile(r'<[^>]*>')
+# Numeric refs ("&#x20", "&#32") may be missing their trailing ";" in
+# observed model output, so that's optional. Named refs ("&amp;") must keep
+# their ";" - otherwise "b&w" would be mistaken for an entity and mangled.
+_HTML_ENTITY_RE = re.compile(r'&#x?[0-9a-fA-F]+;?|&[a-zA-Z]+;')
+_URL_RE = re.compile(r'^[a-zA-Z][a-zA-Z0-9+.\-]*://\S*$')
+
+
+def sanitize_tag(t: str) -> str:
+    """
+    Strip vision-model junk that occasionally rides along in a tag:
+    stray HTML tags/entities, URLs, and non-ASCII noise (unicode
+    format/subscript artifacts, CJK/Cyrillic glyphs, homoglyphs). Accented
+    Latin letters are decomposed first so e.g. "café" survives as "cafe"
+    rather than "caf".
+    """
+    if _URL_RE.match(t.strip()):
+        return ''
+    t = _HTML_TAG_RE.sub('', t)
+    t = _HTML_ENTITY_RE.sub('', t)
+    t = unicodedata.normalize('NFD', t)
+    t = ''.join(c for c in t if not unicodedata.combining(c))
+    t = _TAG_WHITELIST_RE.sub('', t)
+    t = re.sub(r'\s+', ' ', t).strip(" '-&")
+    if not any(c.isalnum() for c in t):
+        return ''
+    return t
+
+
+# Longest realistic single English tag word we've seen in practice
+# ("transportation", "photography", ...). Anything past this is either a
+# glued-together run of words or database noise, never a real single tag -
+# so it's excluded from the segmentation dictionary and is a candidate for
+# segmentation itself.
+GLUED_TAG_MAX_WORD_LEN = 20
+
+
+def build_tag_dictionary(conn) -> tuple:
+    """
+    Build a frequency dictionary of known single-word tags from the live
+    photo_tags table, for use by segment_glued_tag(). Words longer than
+    GLUED_TAG_MAX_WORD_LEN are excluded so a stored glued-together blob
+    can't match itself.
+    """
+    rows = conn.execute(
+        "SELECT tag, tag_count FROM photo_tags WHERE tag NOT LIKE '% %' AND length(tag) <= ?",
+        (GLUED_TAG_MAX_WORD_LEN,),
+    ).fetchall()
+    dictionary = {tag: count for tag, count in rows}
+    total = sum(dictionary.values()) or 1
+    return dictionary, total
+
+
+def segment_glued_tag(word: str, dictionary: dict, total: int) -> Optional[List[str]]:
+    """
+    Split a single word-run with no delimiters at all (e.g.
+    "vintageracingclassicautomobile...") into known dictionary words, using
+    frequency-weighted dynamic programming (the standard word-break /
+    "wordninja" approach). The dictionary comes from this app's own
+    photo_tags vocabulary rather than a generic English word list, since
+    that's exactly the vocabulary the vision model tends to use.
+
+    Returns None if no confident full segmentation exists (more than 20% of
+    the string would fall back to unmatched single characters), so the
+    caller can leave the original tag alone rather than guess.
+    """
+    n = len(word)
+    if n == 0 or not dictionary:
+        return None
+
+    maxlen = min(n, max((len(w) for w in dictionary), default=1))
+    unknown_cost = math.log(total) + 20  # always worse than any real dictionary word
+
+    best_cost = [math.inf] * (n + 1)
+    best_split: List[Optional[int]] = [None] * (n + 1)
+    best_cost[0] = 0.0
+
+    for i in range(1, n + 1):
+        for j in range(max(0, i - maxlen), i):
+            piece = word[j:i]
+            if piece in dictionary:
+                cost = best_cost[j] + (math.log(total) - math.log(dictionary[piece]))
+            elif i - j == 1:
+                cost = best_cost[j] + unknown_cost
+            else:
+                continue
+            if cost < best_cost[i]:
+                best_cost[i] = cost
+                best_split[i] = j
+
+    if best_split[n] is None:
+        return None
+
+    pieces = []
+    i = n
+    while i > 0:
+        j = best_split[i]
+        pieces.append(word[j:i])
+        i = j
+    pieces.reverse()
+
+    unmatched = sum(1 for p in pieces if p not in dictionary)
+    if unmatched / n > 0.2:
+        return None
+
+    # Single letters are never a useful tag, even if one is coincidentally
+    # in the dictionary as pre-existing noise.
+    return [p for p in pieces if p in dictionary and not (len(p) == 1 and p.isalpha())]
+
 
 def normalize_tags(text: str, *, lowercase: bool = False) -> List[str]:
     """
@@ -90,9 +205,10 @@ def normalize_tags(text: str, *, lowercase: bool = False) -> List[str]:
         s2 = s.replace("\\n", " ").replace("\\t", " ")
 
         # Normalize common separators to newline, then split
-        # Keep commas/semicolons/pipes/tabs/backslashes as primary delimiters.
-        # (gemma3:12b occasionally separates tags with a literal backslash instead of a tab)
-        s2 = re.sub(r'[,\t;|\\]+', '\n', s2)
+        # Keep commas/semicolons/pipes/tabs/backslashes/plus-signs as primary
+        # delimiters. (gemma3:12b occasionally separates tags with one of
+        # these instead of a tab)
+        s2 = re.sub(r'[,\t;|\\+]+', '\n', s2)
 
         # If we didn't actually introduce any splits, fall back to whitespace splitting.
         if '\n' not in s2:
@@ -124,19 +240,11 @@ def normalize_tags(text: str, *, lowercase: bool = False) -> List[str]:
 
         # Convert literal escape sequences into actual chars
         # (LLMs sometimes output "\n" and "\t" as two characters)
+        # Must happen before sanitize_tag(), which would otherwise drop the
+        # bare backslash and fuse the escaped letter into the prior word.
         t = t.replace("\\n", " ").replace("\\t", " ")
 
-        # Trim whitespace and surrounding quotes/brackets
-        t = t.strip().strip('"\'')
-
-        # Remove wrapping brackets if a single token includes them
-        t = t.strip().strip("[](){}")
-
-        # Collapse internal whitespace
-        t = re.sub(r'\s+', ' ', t).strip()
-
-        # Drop trailing punctuation that commonly sticks
-        t = re.sub(r'[.,;:]+$', '', t).strip()
+        t = sanitize_tag(t)
 
         if not t:
             continue
